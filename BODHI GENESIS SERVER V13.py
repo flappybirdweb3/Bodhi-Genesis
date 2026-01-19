@@ -3123,507 +3123,507 @@ async def get_signal(request: Request):
             "symbol": symbol, "timestamp": datetime.now().isoformat()
         }
 
-# ===================================================================
-# STEP 2: SESSION CHECK
-# ===================================================================
-current_hour = datetime.now().hour
-session = SYMBOL_SESSIONS.get(symbol, {'start': 9, 'end': 20})
+    # ===================================================================
+    # STEP 2: SESSION CHECK
+    # ===================================================================
+    current_hour = datetime.now().hour
+    session = SYMBOL_SESSIONS.get(symbol, {'start': 9, 'end': 20})
 
-if not (session['start'] <= current_hour < session['end']):
-    return {
-        "signal": 0, "signal_name": "HOLD", "confidence": 0,
-        "reason": f"Outside session ({session['start']}:00-{session['end']}:00, now={current_hour}:00)",
-        "approved": False, "meta_probability": 0, "signal_strength": "OUTSIDE_SESSION",
-        "symbol": symbol, "timestamp": datetime.now().isoformat()
-    }
-
-# ===================================================================
-# STEP 3: PHASE 2 - KALMAN FILTER (Denoise signals)
-# ===================================================================
-kalman_data = {}
-if PHASE2_CONFIG['kalman_enabled']:
-    raw_indicators = {
-        'rsi_m15': rsi_m15, 'rsi_h1': rsi_h1, 'rsi_h4': rsi_h4,
-        'adx_m15': adx_m15, 'adx_h4': adx_h4
-    }
-    kalman_data = kalman_bank.filter_indicators(symbol, raw_indicators)
-    
-    # Use filtered values for V6 check
-    rsi_m15_filtered = kalman_data.get('rsi_m15_kalman', rsi_m15)
-    rsi_h1_filtered = kalman_data.get('rsi_h1_kalman', rsi_h1)
-    rsi_h4_filtered = kalman_data.get('rsi_h4_kalman', rsi_h4)
-    adx_m15_filtered = kalman_data.get('adx_m15_kalman', adx_m15)
-    
-    logger.info(f"[KALMAN] {symbol} | RSI M15: {rsi_m15:.1f} -> {rsi_m15_filtered:.1f} | "
-               f"ADX: {adx_m15:.1f} -> {adx_m15_filtered:.1f}")
-else:
-    rsi_m15_filtered = rsi_m15
-    rsi_h1_filtered = rsi_h1
-    rsi_h4_filtered = rsi_h4
-    adx_m15_filtered = adx_m15
-
-# ===================================================================
-# STEP 4: PHASE 2 - POLYNOMIAL FEATURES
-# ===================================================================
-poly_data = {}
-if PHASE2_CONFIG['polynomial_enabled']:
-    poly_input = {
-        'rsi_m15': rsi_m15_filtered, 'rsi_h1': rsi_h1_filtered, 
-        'rsi_h4': rsi_h4_filtered, 'adx_m15': adx_m15_filtered, 
-        'adx_h4': adx_h4, 'main_trend': main_trend
-    }
-    poly_data = poly_features.generate(poly_input)
-
-# ===================================================================
-# STEP 5: TREND STRENGTH
-# ===================================================================
-tema_dist_pct = 0
-if tema_d1 > 0 and current_price > 0:
-    tema_dist_pct = abs((current_price - tema_d1) / tema_d1 * 100)
-
-trend_strength = get_trend_strength(adx_h4, rsi_h4_filtered, tema_dist_pct)
-trend_params = get_trend_params(trend_strength)
-
-# ===================================================================
-# STEP 6: V6 TU HOP NHAT (uses filtered values)
-# ===================================================================
-v6_data = {
-    'main_trend': main_trend,
-    'rsi_d1': rsi_d1, 'rsi_h4': rsi_h4_filtered, 
-    'rsi_h1': rsi_h1_filtered, 'rsi_m15': rsi_m15_filtered,
-    'adx_h4': adx_h4, 'adx_h1': adx_h1, 'adx_m15': adx_m15_filtered,
-}
-signal_v6, reason_v6 = check_tu_hop_nhat(v6_data)
-logger.info(f"[V6] {symbol} | {reason_v6}")
-
-# ===================================================================
-# STEP 7: ENSEMBLE PREDICTION
-# ===================================================================
-# ENHANCED: Using 5 polynomial features instead of 3
-# Positions 2-3: Now using rsi_std and rsi_range (were placeholders 0.5)
-features_single = [
-    rsi_m15_filtered / 100, 
-    adx_m15_filtered / 100, 
-    poly_data.get('rsi_std', 0) / 100,      # Position 2: RSI volatility (was 0.5)
-    poly_data.get('rsi_range', 0) / 100,    # Position 3: RSI spread (was 0.5)
-    rsi_h1_filtered / 100, 
-    1 if main_trend >= 0 else -1, 
-    adx_h1 / 100,
-    rsi_h4_filtered / 100, 
-    1 if main_trend >= 0 else -1, 
-    adx_h4 / 100,
-    rsi_d1 / 100, 
-    main_trend,
-    current_hour / 24, 
-    datetime.now().weekday() / 6, 
-    datetime.now().minute / 60,
-    poly_data.get('trend_alignment', 0.5),
-    poly_data.get('rsi_momentum', 0) / 100,
-    poly_data.get('adx_category', 0.5)
-][:18]
-features = np.array([features_single for _ in range(20)])
-
-ensemble_result = ensemble_engine.get_ensemble_prediction(features)
-
-logger.info(f"[ENSEMBLE] {symbol} | Mamba={ensemble_result['mamba']['signal']:.3f} "
-           f"LSTM={ensemble_result['lstm']['signal']:.3f} "
-           f"Trans={ensemble_result['transformer']['signal']:.3f} "
-           f"-> {ensemble_result['action']} (consensus={ensemble_result['has_consensus']})")
-
-# ===================================================================
-# STEP 8: META-LABELER
-# ===================================================================
-market_data = {
-    'symbol': symbol,
-    'rsi_m5': rsi_m5, 'rsi_m15': rsi_m15_filtered, 'rsi_h1': rsi_h1_filtered, 'rsi_h4': rsi_h4_filtered,
-    'adx_m5': adx_m5, 'adx_h4': adx_h4, 'atr': atr,
-    'karma': karma_from_ea, 'trades_today': trades_today,
-    'consecutive_losses': consecutive_losses
-}
-meta_probability = ensemble_engine.get_meta_probability(market_data, ensemble_result)
-logger.info(f"[META] {symbol} | Probability={meta_probability:.2%}")
-
-# ===================================================================
-# STEP 9: PHASE 2 - MONTE CARLO RISK SIMULATION
-# ===================================================================
-monte_carlo_result = {}
-if PHASE2_CONFIG['monte_carlo_enabled'] and signal_v6 != 0 and current_price > 0:
-    # Calculate SL/TP distances based on ATR
-    sl_distance = atr * trend_params['sl_atr']
-    tp_distance = atr * trend_params['tp1_atr']
-    
-    monte_carlo_result = monte_carlo.simulate_trade(
-        symbol=symbol,
-        signal=signal_v6,
-        entry_price=current_price,
-        sl_distance=sl_distance,
-        tp_distance=tp_distance,
-        signal_strength=trend_strength,
-        confidence=ensemble_result['ensemble_confidence'] / 100
-    )
-    
-    logger.info(f"[MONTE_CARLO] {symbol} | Win Prob={monte_carlo_result['win_probability']:.1%} "
-               f"RR={monte_carlo_result['risk_reward']:.2f} "
-               f"Rec={monte_carlo_result['recommendation']}")
-
-# ===================================================================
-# STEP 10: FINAL DECISION
-# ===================================================================
-final_signal = signal_v6
-final_confidence = ensemble_result['ensemble_confidence']
-approved = True
-lot_multiplier = 1.0
-
-# Determine signal strength from Meta-Labeler
-meta_cfg = ENSEMBLE_CONFIG
-if meta_probability >= meta_cfg['meta_strong_threshold']:
-    signal_strength = "STRONG"
-    lot_multiplier = 1.0
-elif meta_probability >= meta_cfg['meta_moderate_threshold']:
-    signal_strength = "MODERATE"
-    lot_multiplier = 0.75
-elif meta_probability >= meta_cfg['meta_minimum_threshold']:
-    signal_strength = "WEAK"
-    lot_multiplier = 0.5
-else:
-    signal_strength = "FILTERED"
-    if final_signal != 0:
-        final_signal = 0
-        approved = False
-        lot_multiplier = 0
-
-# PHASE 2: Monte Carlo LOT ADJUSTMENT (không filter, chỉ adjust lot)
-mc_adjustment = 1.0
-if monte_carlo_result and PHASE2_CONFIG['monte_carlo_enabled'] and final_signal != 0:
-    mc_win_prob = monte_carlo_result.get('win_probability', 0.5)
-    mc_recommendation = monte_carlo_result.get('recommendation', 'NORMAL_ENTRY')
-    mc_risk_score = monte_carlo_result.get('risk_score', 50)
-    
-    # LOT ADJUSTMENT based on Monte Carlo (KHÔNG FILTER)
-    if mc_recommendation == 'STRONG_ENTRY':
-        mc_adjustment = 1.25  # Tăng 25% lot
-        logger.info(f"[MC_ADJUST] {symbol} | STRONG_ENTRY -> lot x1.25")
-    elif mc_recommendation == 'NORMAL_ENTRY':
-        mc_adjustment = 1.0   # Giữ nguyên
-    elif mc_recommendation == 'WEAK_ENTRY':
-        mc_adjustment = 0.75  # Giảm 25% lot
-        logger.info(f"[MC_ADJUST] {symbol} | WEAK_ENTRY -> lot x0.75")
-    elif mc_recommendation == 'AVOID':
-        mc_adjustment = 0.5   # Giảm 50% lot (vẫn trade, chỉ nhỏ hơn)
-        logger.info(f"[MC_ADJUST] {symbol} | AVOID -> lot x0.5 (still trading)")
-    
-    # Fine-tune based on win probability
-    if mc_win_prob >= 0.65:
-        mc_adjustment *= 1.1  # High confidence boost
-    elif mc_win_prob < 0.40:
-        mc_adjustment *= 0.8  # Low confidence reduce
-    
-    lot_multiplier *= mc_adjustment
-    
-    logger.info(f"[MC_RESULT] {symbol} | Win={mc_win_prob:.1%} RR={monte_carlo_result.get('risk_reward', 0):.2f} "
-               f"Rec={mc_recommendation} -> lot_adj={mc_adjustment:.2f}")
-
-# Reduce confidence if no consensus
-if not ensemble_result['has_consensus'] and final_signal != 0:
-    final_confidence *= 0.8
-    lot_multiplier *= 0.75
-
-# Reduce confidence if V6 vs Ensemble disagree
-if signal_v6 != 0 and ensemble_result['action_code'] != signal_v6:
-    final_confidence *= 0.7
-
-# ===================================================================
-# STEP 10B: PHASE 3 - SENTIMENT CHECK (NHAN)
-# ===================================================================
-sentiment_data = {}
-sentiment_adjustment = 1.0
-if PHASE3_CONFIG['sentiment_enabled'] and final_signal != 0:
-    sentiment_data = sentiment_reader.get_sentiment()
-    should_trade, sent_mult = sentiment_reader.should_trade_with_sentiment(final_signal)
-    sentiment_adjustment = sent_mult
-    lot_multiplier *= sentiment_adjustment
-    
-    logger.info(f"[SENTIMENT] {symbol} | Score={sentiment_data.get('score', 0):.2f} "
-               f"Status={sentiment_data.get('status', 'N/A')} -> lot_adj={sentiment_adjustment:.2f}")
-
-# ===================================================================
-# STEP 10C: PHASE 3 - KELLY CRITERION (Dynamic Lot Sizing)
-# ===================================================================
-kelly_result = {}
-kelly_adjustment = 1.0
-if PHASE3_CONFIG['kelly_enabled'] and final_signal != 0:
-    # Get win probability from Meta-Labeler or Monte Carlo
-    win_prob = meta_probability
-    if monte_carlo_result:
-        # Use Monte Carlo win prob if available (more accurate)
-        win_prob = monte_carlo_result.get('win_probability', meta_probability)
-    
-    # Get Risk/Reward ratio
-    rr_ratio = trend_params['tp1_atr'] / trend_params['sl_atr'] if trend_params['sl_atr'] > 0 else 1.5
-    
-    kelly_result = kelly_criterion.calculate(win_prob, rr_ratio)
-    kelly_adjustment = kelly_result.get('lot_multiplier', 1.0)
-    
-    # If Kelly says NO_TRADE, reduce lot significantly but don't filter
-    if kelly_result.get('recommendation') == 'NO_TRADE':
-        kelly_adjustment = 0.25  # Still trade but minimal
-        logger.warning(f"[KELLY] {symbol} | Negative edge! Reducing to 25% lot")
-    
-    lot_multiplier *= kelly_adjustment
-    
-    logger.info(f"[KELLY] {symbol} | WinProb={win_prob:.1%} RR={rr_ratio:.2f} "
-               f"Kelly={kelly_result.get('kelly_fraction', 0):.3f} -> lot_adj={kelly_adjustment:.2f}")
-
-# ===================================================================
-# STEP 11: PPO RISK VALIDATION
-# ===================================================================
-karma_data = karma_engine.get_karma(symbol)
-karma_points = karma_data.get('points', 0)
-effective_karma = karma_from_ea if karma_from_ea != 0 else karma_points
-
-risk_result = ppo_engine.validate_signal({
-    'signal': final_signal,
-    'confidence': final_confidence,
-    'symbol': symbol,
-    'karma': effective_karma,
-    'trades_today': trades_today,
-    'consecutive_losses': consecutive_losses,
-    'adx_m15': adx_m15
-}) if ppo_engine else {'approved': True, 'action': 'APPROVE', 'lot_multiplier': 1.0, 'reason': 'PPO disabled'}
-
-if not risk_result['approved']:
-    final_signal = 0
-    lot_multiplier = 0
-    approved = False
-else:
-    lot_multiplier *= risk_result['lot_multiplier']
-
-# Apply trend adaptive lot multiplier
-lot_multiplier *= trend_params['lot_mult']
-lot_multiplier = min(lot_multiplier, 2.0)  # Cap at 2x
-
-signal_name = {1: 'BUY', -1: 'SELL', 0: 'HOLD'}[final_signal]
-
-# Cache for heartbeat
-last_signals[symbol] = {
-    "signal": signal_name,
-    "confidence": round(final_confidence, 1),
-    "meta_probability": round(meta_probability, 3)
-}
-
-# Log signal
-data_logger.log_signal({
-    'symbol': symbol,
-    'final_signal': final_signal,
-    'confidence': final_confidence,
-    'v6_signal': signal_v6,
-    'ensemble_signal': ensemble_result['ensemble_signal'],
-    'meta_probability': meta_probability,
-    'mamba_signal': ensemble_result['mamba']['signal'],
-    'lstm_signal': ensemble_result['lstm']['signal'],
-    'transformer_signal': ensemble_result['transformer']['signal'],
-    'has_consensus': ensemble_result['has_consensus'],
-    'signal_strength': signal_strength,
-    'approved': approved,
-    'rsi_m15': rsi_m15, 'rsi_h1': rsi_h1, 'rsi_h4': rsi_h4,
-    'adx_m15': adx_m15, 'main_trend': main_trend
-})
-
-logger.info(f"[FINAL] {symbol} | {signal_name} | Conf={final_confidence:.1f}% | "
-           f"Lot={lot_multiplier:.2f}x | Meta={meta_probability:.2%} | {signal_strength}")
-
-# ===================================================================
-# BUILD MAIN RESPONSE (V13)
-# ===================================================================
-
-main_response = {
-    # Mamba signal (backward compatible)
-    "mamba_signal": ensemble_result['mamba']['signal'],
-    "mamba_confidence": round(ensemble_result['mamba']['confidence'], 1),
-    
-    # PPO validation
-    "ppo_action": risk_result['action'],
-    "ppo_reason": risk_result['reason'],
-    
-    # Final decision
-    "signal": final_signal,
-    "signal_name": signal_name,
-    "confidence": round(final_confidence, 1),
-    "lot_multiplier": round(lot_multiplier, 2),
-    "approved": approved,
-    
-    # Meta-Labeler
-    "meta_probability": round(meta_probability, 3),
-    "signal_strength": signal_strength,
-    
-    # Ensemble details
-    "ensemble_signal": round(ensemble_result['ensemble_signal'], 3),
-    "has_consensus": ensemble_result['has_consensus'],
-    "lstm_signal": round(ensemble_result['lstm']['signal'], 3),
-    "transformer_signal": round(ensemble_result['transformer']['signal'], 3),
-    
-    # V6
-    "v6_signal": signal_v6,
-    "reason": reason_v6,
-    
-    # Trend Adaptive
-    "trend_strength": trend_strength,
-    "trend_lot_mult": trend_params['lot_mult'],
-    "trend_max_trades": trend_params['max_trades'],
-    "trend_sl_atr": trend_params['sl_atr'],
-    "trend_tp1_atr": trend_params['tp1_atr'],
-    
-    # PHASE 2: Kalman Filter
-    "kalman_enabled": PHASE2_CONFIG['kalman_enabled'],
-    "rsi_m15_kalman": kalman_data.get('rsi_m15_kalman', rsi_m15),
-    "rsi_m15_velocity": kalman_data.get('rsi_m15_velocity', 0),
-    "adx_m15_kalman": kalman_data.get('adx_m15_kalman', adx_m15),
-    
-    # PHASE 2: Monte Carlo (LOT ADJUSTMENT ONLY - no filtering)
-    "monte_carlo_enabled": PHASE2_CONFIG['monte_carlo_enabled'],
-    "mc_win_probability": monte_carlo_result.get('win_probability', 0) if monte_carlo_result else 0,
-    "mc_risk_reward": monte_carlo_result.get('risk_reward', 0) if monte_carlo_result else 0,
-    "mc_recommendation": monte_carlo_result.get('recommendation', 'N/A') if monte_carlo_result else 'N/A',
-    "mc_risk_score": monte_carlo_result.get('risk_score', 0) if monte_carlo_result else 0,
-    "mc_lot_adjustment": round(mc_adjustment, 2),
-    "mc_mode": "LOT_ADJUSTMENT_ONLY",
-    
-    # PHASE 2: Polynomial Features
-    "polynomial_enabled": PHASE2_CONFIG['polynomial_enabled'],
-    "poly_trend_alignment": poly_data.get('trend_alignment', 0.5) if poly_data else 0.5,
-    "poly_rsi_momentum": poly_data.get('rsi_momentum', 0) if poly_data else 0,
-    "poly_adx_category": poly_data.get('adx_category', 0.5) if poly_data else 0.5,
-    
-    # PHASE 3: Sentiment (NHAN)
-    "sentiment_enabled": PHASE3_CONFIG['sentiment_enabled'],
-    "sentiment_score": sentiment_data.get('score', 0) if sentiment_data else 0,
-    "sentiment_status": sentiment_data.get('status', 'N/A') if sentiment_data else 'N/A',
-    "sentiment_adjustment": round(sentiment_adjustment, 2),
-    
-    # PHASE 3: Kelly Criterion
-    "kelly_enabled": PHASE3_CONFIG['kelly_enabled'],
-    "kelly_fraction": kelly_result.get('kelly_fraction', 0) if kelly_result else 0,
-    "kelly_recommendation": kelly_result.get('recommendation', 'N/A') if kelly_result else 'N/A',
-    "kelly_adjustment": round(kelly_adjustment, 2),
-    
-    # Context
-    "symbol": symbol,
-    "karma": karma_points,
-    "entry_tf": "M15",
-    "philosophy": "TU HOP NHAT + Phase2 (Kalman/MC/Poly) + Phase3 (Sentiment/Kelly) + SHADOWS",
-    "version": VERSION,
-    "timestamp": datetime.now().isoformat()
-}
-
-# ===================================================================
-# NEW: SHADOW PORTFOLIOS PROCESSING
-# ===================================================================
-
-if shadow_manager:
-    try:
-        # Generate signal_id for traffic routing
-        import hashlib
-        signal_id = hashlib.md5(f"{symbol}{datetime.now().isoformat()}".encode()).hexdigest()
-        
-        # Extract OHLC data
-        close = float(data.get('close', data.get('current_price', 0)))
-        open_price = float(data.get('open', close))
-        high = float(data.get('high', close))
-        low = float(data.get('low', close))
-        
-        # Prepare signal data for shadows
-        signal_data = {
-            'symbol': symbol,
-            'close': close,
-            'open': open_price,
-            'high': high,
-            'low': low,
-            'rsi_m15': rsi_m15,
-            'rsi_h1': rsi_h1,
-            'rsi_h4': rsi_h4,
-            'adx_h4': adx_h4,
-            'atr': atr,
-            'karma': karma_points,
-            'trend_strength': trend_strength,
-            'market_regime': 'NEUTRAL'  # Can be enhanced later
+    if not (session['start'] <= current_hour < session['end']):
+        return {
+            "signal": 0, "signal_name": "HOLD", "confidence": 0,
+            "reason": f"Outside session ({session['start']}:00-{session['end']}:00, now={current_hour}:00)",
+            "approved": False, "meta_probability": 0, "signal_strength": "OUTSIDE_SESSION",
+            "symbol": symbol, "timestamp": datetime.now().isoformat()
         }
+
+    # ===================================================================
+    # STEP 3: PHASE 2 - KALMAN FILTER (Denoise signals)
+    # ===================================================================
+    kalman_data = {}
+    if PHASE2_CONFIG['kalman_enabled']:
+        raw_indicators = {
+            'rsi_m15': rsi_m15, 'rsi_h1': rsi_h1, 'rsi_h4': rsi_h4,
+            'adx_m15': adx_m15, 'adx_h4': adx_h4
+        }
+        kalman_data = kalman_bank.filter_indicators(symbol, raw_indicators)
+    
+        # Use filtered values for V6 check
+        rsi_m15_filtered = kalman_data.get('rsi_m15_kalman', rsi_m15)
+        rsi_h1_filtered = kalman_data.get('rsi_h1_kalman', rsi_h1)
+        rsi_h4_filtered = kalman_data.get('rsi_h4_kalman', rsi_h4)
+        adx_m15_filtered = kalman_data.get('adx_m15_kalman', adx_m15)
+    
+        logger.info(f"[KALMAN] {symbol} | RSI M15: {rsi_m15:.1f} -> {rsi_m15_filtered:.1f} | "
+                   f"ADX: {adx_m15:.1f} -> {adx_m15_filtered:.1f}")
+    else:
+        rsi_m15_filtered = rsi_m15
+        rsi_h1_filtered = rsi_h1
+        rsi_h4_filtered = rsi_h4
+        adx_m15_filtered = adx_m15
+
+    # ===================================================================
+    # STEP 4: PHASE 2 - POLYNOMIAL FEATURES
+    # ===================================================================
+    poly_data = {}
+    if PHASE2_CONFIG['polynomial_enabled']:
+        poly_input = {
+            'rsi_m15': rsi_m15_filtered, 'rsi_h1': rsi_h1_filtered, 
+            'rsi_h4': rsi_h4_filtered, 'adx_m15': adx_m15_filtered, 
+            'adx_h4': adx_h4, 'main_trend': main_trend
+        }
+        poly_data = poly_features.generate(poly_input)
+
+    # ===================================================================
+    # STEP 5: TREND STRENGTH
+    # ===================================================================
+    tema_dist_pct = 0
+    if tema_d1 > 0 and current_price > 0:
+        tema_dist_pct = abs((current_price - tema_d1) / tema_d1 * 100)
+
+    trend_strength = get_trend_strength(adx_h4, rsi_h4_filtered, tema_dist_pct)
+    trend_params = get_trend_params(trend_strength)
+
+    # ===================================================================
+    # STEP 6: V6 TU HOP NHAT (uses filtered values)
+    # ===================================================================
+    v6_data = {
+        'main_trend': main_trend,
+        'rsi_d1': rsi_d1, 'rsi_h4': rsi_h4_filtered, 
+        'rsi_h1': rsi_h1_filtered, 'rsi_m15': rsi_m15_filtered,
+        'adx_h4': adx_h4, 'adx_h1': adx_h1, 'adx_m15': adx_m15_filtered,
+    }
+    signal_v6, reason_v6 = check_tu_hop_nhat(v6_data)
+    logger.info(f"[V6] {symbol} | {reason_v6}")
+
+    # ===================================================================
+    # STEP 7: ENSEMBLE PREDICTION
+    # ===================================================================
+    # ENHANCED: Using 5 polynomial features instead of 3
+    # Positions 2-3: Now using rsi_std and rsi_range (were placeholders 0.5)
+    features_single = [
+        rsi_m15_filtered / 100, 
+        adx_m15_filtered / 100, 
+        poly_data.get('rsi_std', 0) / 100,      # Position 2: RSI volatility (was 0.5)
+        poly_data.get('rsi_range', 0) / 100,    # Position 3: RSI spread (was 0.5)
+        rsi_h1_filtered / 100, 
+        1 if main_trend >= 0 else -1, 
+        adx_h1 / 100,
+        rsi_h4_filtered / 100, 
+        1 if main_trend >= 0 else -1, 
+        adx_h4 / 100,
+        rsi_d1 / 100, 
+        main_trend,
+        current_hour / 24, 
+        datetime.now().weekday() / 6, 
+        datetime.now().minute / 60,
+        poly_data.get('trend_alignment', 0.5),
+        poly_data.get('rsi_momentum', 0) / 100,
+        poly_data.get('adx_category', 0.5)
+    ][:18]
+    features = np.array([features_single for _ in range(20)])
+
+    ensemble_result = ensemble_engine.get_ensemble_prediction(features)
+
+    logger.info(f"[ENSEMBLE] {symbol} | Mamba={ensemble_result['mamba']['signal']:.3f} "
+               f"LSTM={ensemble_result['lstm']['signal']:.3f} "
+               f"Trans={ensemble_result['transformer']['signal']:.3f} "
+               f"-> {ensemble_result['action']} (consensus={ensemble_result['has_consensus']})")
+
+    # ===================================================================
+    # STEP 8: META-LABELER
+    # ===================================================================
+    market_data = {
+        'symbol': symbol,
+        'rsi_m5': rsi_m5, 'rsi_m15': rsi_m15_filtered, 'rsi_h1': rsi_h1_filtered, 'rsi_h4': rsi_h4_filtered,
+        'adx_m5': adx_m5, 'adx_h4': adx_h4, 'atr': atr,
+        'karma': karma_from_ea, 'trades_today': trades_today,
+        'consecutive_losses': consecutive_losses
+    }
+    meta_probability = ensemble_engine.get_meta_probability(market_data, ensemble_result)
+    logger.info(f"[META] {symbol} | Probability={meta_probability:.2%}")
+
+    # ===================================================================
+    # STEP 9: PHASE 2 - MONTE CARLO RISK SIMULATION
+    # ===================================================================
+    monte_carlo_result = {}
+    if PHASE2_CONFIG['monte_carlo_enabled'] and signal_v6 != 0 and current_price > 0:
+        # Calculate SL/TP distances based on ATR
+        sl_distance = atr * trend_params['sl_atr']
+        tp_distance = atr * trend_params['tp1_atr']
+    
+        monte_carlo_result = monte_carlo.simulate_trade(
+            symbol=symbol,
+            signal=signal_v6,
+            entry_price=current_price,
+            sl_distance=sl_distance,
+            tp_distance=tp_distance,
+            signal_strength=trend_strength,
+            confidence=ensemble_result['ensemble_confidence'] / 100
+        )
+    
+        logger.info(f"[MONTE_CARLO] {symbol} | Win Prob={monte_carlo_result['win_probability']:.1%} "
+                   f"RR={monte_carlo_result['risk_reward']:.2f} "
+                   f"Rec={monte_carlo_result['recommendation']}")
+
+    # ===================================================================
+    # STEP 10: FINAL DECISION
+    # ===================================================================
+    final_signal = signal_v6
+    final_confidence = ensemble_result['ensemble_confidence']
+    approved = True
+    lot_multiplier = 1.0
+
+    # Determine signal strength from Meta-Labeler
+    meta_cfg = ENSEMBLE_CONFIG
+    if meta_probability >= meta_cfg['meta_strong_threshold']:
+        signal_strength = "STRONG"
+        lot_multiplier = 1.0
+    elif meta_probability >= meta_cfg['meta_moderate_threshold']:
+        signal_strength = "MODERATE"
+        lot_multiplier = 0.75
+    elif meta_probability >= meta_cfg['meta_minimum_threshold']:
+        signal_strength = "WEAK"
+        lot_multiplier = 0.5
+    else:
+        signal_strength = "FILTERED"
+        if final_signal != 0:
+            final_signal = 0
+            approved = False
+            lot_multiplier = 0
+
+    # PHASE 2: Monte Carlo LOT ADJUSTMENT (không filter, chỉ adjust lot)
+    mc_adjustment = 1.0
+    if monte_carlo_result and PHASE2_CONFIG['monte_carlo_enabled'] and final_signal != 0:
+        mc_win_prob = monte_carlo_result.get('win_probability', 0.5)
+        mc_recommendation = monte_carlo_result.get('recommendation', 'NORMAL_ENTRY')
+        mc_risk_score = monte_carlo_result.get('risk_score', 50)
+    
+        # LOT ADJUSTMENT based on Monte Carlo (KHÔNG FILTER)
+        if mc_recommendation == 'STRONG_ENTRY':
+            mc_adjustment = 1.25  # Tăng 25% lot
+            logger.info(f"[MC_ADJUST] {symbol} | STRONG_ENTRY -> lot x1.25")
+        elif mc_recommendation == 'NORMAL_ENTRY':
+            mc_adjustment = 1.0   # Giữ nguyên
+        elif mc_recommendation == 'WEAK_ENTRY':
+            mc_adjustment = 0.75  # Giảm 25% lot
+            logger.info(f"[MC_ADJUST] {symbol} | WEAK_ENTRY -> lot x0.75")
+        elif mc_recommendation == 'AVOID':
+            mc_adjustment = 0.5   # Giảm 50% lot (vẫn trade, chỉ nhỏ hơn)
+            logger.info(f"[MC_ADJUST] {symbol} | AVOID -> lot x0.5 (still trading)")
+    
+        # Fine-tune based on win probability
+        if mc_win_prob >= 0.65:
+            mc_adjustment *= 1.1  # High confidence boost
+        elif mc_win_prob < 0.40:
+            mc_adjustment *= 0.8  # Low confidence reduce
+    
+        lot_multiplier *= mc_adjustment
+    
+        logger.info(f"[MC_RESULT] {symbol} | Win={mc_win_prob:.1%} RR={monte_carlo_result.get('risk_reward', 0):.2f} "
+                   f"Rec={mc_recommendation} -> lot_adj={mc_adjustment:.2f}")
+
+    # Reduce confidence if no consensus
+    if not ensemble_result['has_consensus'] and final_signal != 0:
+        final_confidence *= 0.8
+        lot_multiplier *= 0.75
+
+    # Reduce confidence if V6 vs Ensemble disagree
+    if signal_v6 != 0 and ensemble_result['action_code'] != signal_v6:
+        final_confidence *= 0.7
+
+    # ===================================================================
+    # STEP 10B: PHASE 3 - SENTIMENT CHECK (NHAN)
+    # ===================================================================
+    sentiment_data = {}
+    sentiment_adjustment = 1.0
+    if PHASE3_CONFIG['sentiment_enabled'] and final_signal != 0:
+        sentiment_data = sentiment_reader.get_sentiment()
+        should_trade, sent_mult = sentiment_reader.should_trade_with_sentiment(final_signal)
+        sentiment_adjustment = sent_mult
+        lot_multiplier *= sentiment_adjustment
+    
+        logger.info(f"[SENTIMENT] {symbol} | Score={sentiment_data.get('score', 0):.2f} "
+                   f"Status={sentiment_data.get('status', 'N/A')} -> lot_adj={sentiment_adjustment:.2f}")
+
+    # ===================================================================
+    # STEP 10C: PHASE 3 - KELLY CRITERION (Dynamic Lot Sizing)
+    # ===================================================================
+    kelly_result = {}
+    kelly_adjustment = 1.0
+    if PHASE3_CONFIG['kelly_enabled'] and final_signal != 0:
+        # Get win probability from Meta-Labeler or Monte Carlo
+        win_prob = meta_probability
+        if monte_carlo_result:
+            # Use Monte Carlo win prob if available (more accurate)
+            win_prob = monte_carlo_result.get('win_probability', meta_probability)
+    
+        # Get Risk/Reward ratio
+        rr_ratio = trend_params['tp1_atr'] / trend_params['sl_atr'] if trend_params['sl_atr'] > 0 else 1.5
+    
+        kelly_result = kelly_criterion.calculate(win_prob, rr_ratio)
+        kelly_adjustment = kelly_result.get('lot_multiplier', 1.0)
+    
+        # If Kelly says NO_TRADE, reduce lot significantly but don't filter
+        if kelly_result.get('recommendation') == 'NO_TRADE':
+            kelly_adjustment = 0.25  # Still trade but minimal
+            logger.warning(f"[KELLY] {symbol} | Negative edge! Reducing to 25% lot")
+    
+        lot_multiplier *= kelly_adjustment
+    
+        logger.info(f"[KELLY] {symbol} | WinProb={win_prob:.1%} RR={rr_ratio:.2f} "
+                   f"Kelly={kelly_result.get('kelly_fraction', 0):.3f} -> lot_adj={kelly_adjustment:.2f}")
+
+    # ===================================================================
+    # STEP 11: PPO RISK VALIDATION
+    # ===================================================================
+    karma_data = karma_engine.get_karma(symbol)
+    karma_points = karma_data.get('points', 0)
+    effective_karma = karma_from_ea if karma_from_ea != 0 else karma_points
+
+    risk_result = ppo_engine.validate_signal({
+        'signal': final_signal,
+        'confidence': final_confidence,
+        'symbol': symbol,
+        'karma': effective_karma,
+        'trades_today': trades_today,
+        'consecutive_losses': consecutive_losses,
+        'adx_m15': adx_m15
+    }) if ppo_engine else {'approved': True, 'action': 'APPROVE', 'lot_multiplier': 1.0, 'reason': 'PPO disabled'}
+
+    if not risk_result['approved']:
+        final_signal = 0
+        lot_multiplier = 0
+        approved = False
+    else:
+        lot_multiplier *= risk_result['lot_multiplier']
+
+    # Apply trend adaptive lot multiplier
+    lot_multiplier *= trend_params['lot_mult']
+    lot_multiplier = min(lot_multiplier, 2.0)  # Cap at 2x
+
+    signal_name = {1: 'BUY', -1: 'SELL', 0: 'HOLD'}[final_signal]
+
+    # Cache for heartbeat
+    last_signals[symbol] = {
+        "signal": signal_name,
+        "confidence": round(final_confidence, 1),
+        "meta_probability": round(meta_probability, 3)
+    }
+
+    # Log signal
+    data_logger.log_signal({
+        'symbol': symbol,
+        'final_signal': final_signal,
+        'confidence': final_confidence,
+        'v6_signal': signal_v6,
+        'ensemble_signal': ensemble_result['ensemble_signal'],
+        'meta_probability': meta_probability,
+        'mamba_signal': ensemble_result['mamba']['signal'],
+        'lstm_signal': ensemble_result['lstm']['signal'],
+        'transformer_signal': ensemble_result['transformer']['signal'],
+        'has_consensus': ensemble_result['has_consensus'],
+        'signal_strength': signal_strength,
+        'approved': approved,
+        'rsi_m15': rsi_m15, 'rsi_h1': rsi_h1, 'rsi_h4': rsi_h4,
+        'adx_m15': adx_m15, 'main_trend': main_trend
+    })
+
+    logger.info(f"[FINAL] {symbol} | {signal_name} | Conf={final_confidence:.1f}% | "
+               f"Lot={lot_multiplier:.2f}x | Meta={meta_probability:.2%} | {signal_strength}")
+
+    # ===================================================================
+    # BUILD MAIN RESPONSE (V13)
+    # ===================================================================
+
+    main_response = {
+        # Mamba signal (backward compatible)
+        "mamba_signal": ensemble_result['mamba']['signal'],
+        "mamba_confidence": round(ensemble_result['mamba']['confidence'], 1),
+    
+        # PPO validation
+        "ppo_action": risk_result['action'],
+        "ppo_reason": risk_result['reason'],
+    
+        # Final decision
+        "signal": final_signal,
+        "signal_name": signal_name,
+        "confidence": round(final_confidence, 1),
+        "lot_multiplier": round(lot_multiplier, 2),
+        "approved": approved,
+    
+        # Meta-Labeler
+        "meta_probability": round(meta_probability, 3),
+        "signal_strength": signal_strength,
+    
+        # Ensemble details
+        "ensemble_signal": round(ensemble_result['ensemble_signal'], 3),
+        "has_consensus": ensemble_result['has_consensus'],
+        "lstm_signal": round(ensemble_result['lstm']['signal'], 3),
+        "transformer_signal": round(ensemble_result['transformer']['signal'], 3),
+    
+        # V6
+        "v6_signal": signal_v6,
+        "reason": reason_v6,
+    
+        # Trend Adaptive
+        "trend_strength": trend_strength,
+        "trend_lot_mult": trend_params['lot_mult'],
+        "trend_max_trades": trend_params['max_trades'],
+        "trend_sl_atr": trend_params['sl_atr'],
+        "trend_tp1_atr": trend_params['tp1_atr'],
+    
+        # PHASE 2: Kalman Filter
+        "kalman_enabled": PHASE2_CONFIG['kalman_enabled'],
+        "rsi_m15_kalman": kalman_data.get('rsi_m15_kalman', rsi_m15),
+        "rsi_m15_velocity": kalman_data.get('rsi_m15_velocity', 0),
+        "adx_m15_kalman": kalman_data.get('adx_m15_kalman', adx_m15),
+    
+        # PHASE 2: Monte Carlo (LOT ADJUSTMENT ONLY - no filtering)
+        "monte_carlo_enabled": PHASE2_CONFIG['monte_carlo_enabled'],
+        "mc_win_probability": monte_carlo_result.get('win_probability', 0) if monte_carlo_result else 0,
+        "mc_risk_reward": monte_carlo_result.get('risk_reward', 0) if monte_carlo_result else 0,
+        "mc_recommendation": monte_carlo_result.get('recommendation', 'N/A') if monte_carlo_result else 'N/A',
+        "mc_risk_score": monte_carlo_result.get('risk_score', 0) if monte_carlo_result else 0,
+        "mc_lot_adjustment": round(mc_adjustment, 2),
+        "mc_mode": "LOT_ADJUSTMENT_ONLY",
+    
+        # PHASE 2: Polynomial Features
+        "polynomial_enabled": PHASE2_CONFIG['polynomial_enabled'],
+        "poly_trend_alignment": poly_data.get('trend_alignment', 0.5) if poly_data else 0.5,
+        "poly_rsi_momentum": poly_data.get('rsi_momentum', 0) if poly_data else 0,
+        "poly_adx_category": poly_data.get('adx_category', 0.5) if poly_data else 0.5,
+    
+        # PHASE 3: Sentiment (NHAN)
+        "sentiment_enabled": PHASE3_CONFIG['sentiment_enabled'],
+        "sentiment_score": sentiment_data.get('score', 0) if sentiment_data else 0,
+        "sentiment_status": sentiment_data.get('status', 'N/A') if sentiment_data else 'N/A',
+        "sentiment_adjustment": round(sentiment_adjustment, 2),
+    
+        # PHASE 3: Kelly Criterion
+        "kelly_enabled": PHASE3_CONFIG['kelly_enabled'],
+        "kelly_fraction": kelly_result.get('kelly_fraction', 0) if kelly_result else 0,
+        "kelly_recommendation": kelly_result.get('recommendation', 'N/A') if kelly_result else 'N/A',
+        "kelly_adjustment": round(kelly_adjustment, 2),
+    
+        # Context
+        "symbol": symbol,
+        "karma": karma_points,
+        "entry_tf": "M15",
+        "philosophy": "TU HOP NHAT + Phase2 (Kalman/MC/Poly) + Phase3 (Sentiment/Kelly) + SHADOWS",
+        "version": VERSION,
+        "timestamp": datetime.now().isoformat()
+    }
+
+    # ===================================================================
+    # NEW: SHADOW PORTFOLIOS PROCESSING
+    # ===================================================================
+
+    if shadow_manager:
+        try:
+            # Generate signal_id for traffic routing
+            import hashlib
+            signal_id = hashlib.md5(f"{symbol}{datetime.now().isoformat()}".encode()).hexdigest()
         
-        # Ensemble result format for shadows: [SELL_prob, HOLD_prob, BUY_prob]
-        # V13 ensemble_result has: predictions[0]=SELL, predictions[1]=HOLD, predictions[2]=BUY
-        ensemble_probs = [
-            ensemble_result['predictions'][0],  # SELL
-            ensemble_result['predictions'][1],  # HOLD
-            ensemble_result['predictions'][2]   # BUY
-        ]
+            # Extract OHLC data
+            close = float(data.get('close', data.get('current_price', 0)))
+            open_price = float(data.get('open', close))
+            high = float(data.get('high', close))
+            low = float(data.get('low', close))
         
-        # Process each portfolio
-        portfolio_results = {}
+            # Prepare signal data for shadows
+            signal_data = {
+                'symbol': symbol,
+                'close': close,
+                'open': open_price,
+                'high': high,
+                'low': low,
+                'rsi_m15': rsi_m15,
+                'rsi_h1': rsi_h1,
+                'rsi_h4': rsi_h4,
+                'adx_h4': adx_h4,
+                'atr': atr,
+                'karma': karma_points,
+                'trend_strength': trend_strength,
+                'market_regime': 'NEUTRAL'  # Can be enhanced later
+            }
         
-        for portfolio_name, portfolio_info in shadow_manager.portfolios.items():
+            # Ensemble result format for shadows: [SELL_prob, HOLD_prob, BUY_prob]
+            # V13 ensemble_result has: predictions[0]=SELL, predictions[1]=HOLD, predictions[2]=BUY
+            ensemble_probs = [
+                ensemble_result['predictions'][0],  # SELL
+                ensemble_result['predictions'][1],  # HOLD
+                ensemble_result['predictions'][2]   # BUY
+            ]
+        
+            # Process each portfolio
+            portfolio_results = {}
+        
+            for portfolio_name, portfolio_info in shadow_manager.portfolios.items():
             
-            # Check traffic %
-            if not shadow_manager.should_process_signal(portfolio_name, signal_id):
-                continue
+                # Check traffic %
+                if not shadow_manager.should_process_signal(portfolio_name, signal_id):
+                    continue
             
-            # Get strategy decision
-            decision = shadow_manager.get_strategy_decision(
-                portfolio_name=portfolio_name,
-                signal_data=signal_data,
-                ensemble_result=ensemble_probs,
-                meta_prob=meta_probability
-            )
-            
-            logger.info(
-                f"[SHADOW] {portfolio_name}: {decision['signal']} "
-                f"(conf={decision['confidence']:.2f}) - {decision['reason']}"
-            )
-            
-            # If LIVE portfolio
-            if portfolio_info['is_live']:
-                portfolio_results[portfolio_name] = {
-                    'type': 'LIVE',
-                    'signal': decision['signal'],
-                    'confidence': decision['confidence'],
-                    'matches_main': decision['signal'] == signal_name
-                }
-            
-            # If SHADOW portfolio → Log to CSV
-            else:
-                shadow_manager.log_shadow_trade(
+                # Get strategy decision
+                decision = shadow_manager.get_strategy_decision(
                     portfolio_name=portfolio_name,
                     signal_data=signal_data,
-                    decision=decision
+                    ensemble_result=ensemble_probs,
+                    meta_prob=meta_probability
                 )
+            
+                logger.info(
+                    f"[SHADOW] {portfolio_name}: {decision['signal']} "
+                    f"(conf={decision['confidence']:.2f}) - {decision['reason']}"
+                )
+            
+                # If LIVE portfolio
+                if portfolio_info['is_live']:
+                    portfolio_results[portfolio_name] = {
+                        'type': 'LIVE',
+                        'signal': decision['signal'],
+                        'confidence': decision['confidence'],
+                        'matches_main': decision['signal'] == signal_name
+                    }
+            
+                # If SHADOW portfolio → Log to CSV
+                else:
+                    shadow_manager.log_shadow_trade(
+                        portfolio_name=portfolio_name,
+                        signal_data=signal_data,
+                        decision=decision
+                    )
                 
-                portfolio_results[portfolio_name] = {
-                    'type': 'SHADOW',
-                    'signal': decision['signal'],
-                    'confidence': decision['confidence'],
-                    'simulated': True
-                }
+                    portfolio_results[portfolio_name] = {
+                        'type': 'SHADOW',
+                        'signal': decision['signal'],
+                        'confidence': decision['confidence'],
+                        'simulated': True
+                    }
         
-        # Add shadow info to response
+            # Add shadow info to response
+            main_response['shadow_portfolios'] = {
+                'enabled': True,
+                'processed': list(portfolio_results.keys()),
+                'results': portfolio_results
+            }
+        
+            logger.info(f"[SHADOW] Processed {len(portfolio_results)} portfolios")
+        
+        except Exception as e:
+            logger.error(f"[SHADOW] Processing error: {e}", exc_info=True)
+            main_response['shadow_portfolios'] = {
+                'enabled': True,
+                'error': str(e)
+            }
+    else:
         main_response['shadow_portfolios'] = {
-            'enabled': True,
-            'processed': list(portfolio_results.keys()),
-            'results': portfolio_results
+            'enabled': False,
+            'reason': 'Shadow manager not initialized'
         }
-        
-        logger.info(f"[SHADOW] Processed {len(portfolio_results)} portfolios")
-        
-    except Exception as e:
-        logger.error(f"[SHADOW] Processing error: {e}", exc_info=True)
-        main_response['shadow_portfolios'] = {
-            'enabled': True,
-            'error': str(e)
-        }
-else:
-    main_response['shadow_portfolios'] = {
-        'enabled': False,
-        'reason': 'Shadow manager not initialized'
-    }
 
-return main_response
+    return main_response
 
 @app.post("/api/trade")
 @app.post("/trade")
@@ -3631,24 +3631,24 @@ async def log_trade(request: Request):
     """Log trade result and update karma"""
     data = await request.json()
     if not data:
-    raise HTTPException(status_code=400, detail="No data")
+        raise HTTPException(status_code=400, detail="No data")
 
     symbol = normalize_symbol(data.get('symbol', 'EURUSD'))
 
     # Normalize pips
     original_pips = data.get('profit_pips', 0)
     normalized_pips = normalize_pips(
-    symbol=symbol,
-    ea_pips=original_pips,
-    profit_money=data.get('profit_money', 0),
-    lot=data.get('lot', 0.01),
-    open_price=data.get('open_price', 0),
-    close_price=data.get('close_price', 0),
-    trade_type=data.get('type', 'UNKNOWN')
+        symbol=symbol,
+        ea_pips=original_pips,
+        profit_money=data.get('profit_money', 0),
+        lot=data.get('lot', 0.01),
+        open_price=data.get('open_price', 0),
+        close_price=data.get('close_price', 0),
+        trade_type=data.get('type', 'UNKNOWN')
     )
 
     if abs(normalized_pips - original_pips) > 1:
-    logger.info(f"[PIPS] Normalized {symbol}: {original_pips:.1f} -> {normalized_pips:.1f}")
+        logger.info(f"[PIPS] Normalized {symbol}: {original_pips:.1f} -> {normalized_pips:.1f}")
 
     data['profit_pips'] = normalized_pips
     data['symbol'] = symbol
@@ -3664,32 +3664,32 @@ async def log_trade(request: Request):
     # Tokenomics integration (optional)
     token_result = None
     try:
-    import httpx
-    async with httpx.AsyncClient() as client:
-        token_data = {
-            'address': data.get('address', f"trader_{data.get('magic', 0)}"),
-            'profit_pips': normalized_pips,
-            'is_clean': data.get('is_clean', True),
-        }
-        resp = await client.post("http://localhost:8888/trade_karma", json=token_data, timeout=5)
-        if resp.status_code == 200:
-            token_result = resp.json()
+        import httpx
+        async with httpx.AsyncClient() as client:
+            token_data = {
+                'address': data.get('address', f"trader_{data.get('magic', 0)}"),
+                'profit_pips': normalized_pips,
+                'is_clean': data.get('is_clean', True),
+            }
+            resp = await client.post("http://localhost:8888/trade_karma", json=token_data, timeout=5)
+            if resp.status_code == 200:
+                token_result = resp.json()
     except:
-    pass
+        pass
 
     logger.info(f"[TRADE] {symbol} | {normalized_pips:.1f} pips | Karma: {karma_result['karma_after']:.0f}")
 
     return {
-    "logged": True,
-    "symbol": symbol,
-    "profit_pips": normalized_pips,
-    "karma": karma_result,
-    "karma_after": karma_result['karma_after'],
-    "level": karma_result['level'],
-    "token": token_result,
-    "trade_count": data_logger.get_trade_count(),
-    "pips_normalized": normalized_pips != original_pips,
-    "timestamp": datetime.now().isoformat()
+        "logged": True,
+        "symbol": symbol,
+        "profit_pips": normalized_pips,
+        "karma": karma_result,
+        "karma_after": karma_result['karma_after'],
+        "level": karma_result['level'],
+        "token": token_result,
+        "trade_count": data_logger.get_trade_count(),
+        "pips_normalized": normalized_pips != original_pips,
+        "timestamp": datetime.now().isoformat()
     }
 
 @app.get("/api/karma/{symbol}")
@@ -3821,64 +3821,64 @@ async def update_phase2_config(request: Request):
 
     # Update Kalman
     if 'kalman_enabled' in data:
-    PHASE2_CONFIG['kalman_enabled'] = bool(data['kalman_enabled'])
+        PHASE2_CONFIG['kalman_enabled'] = bool(data['kalman_enabled'])
 
     # Update Monte Carlo (lot adjustment only, no filter)
     if 'monte_carlo_enabled' in data:
-    PHASE2_CONFIG['monte_carlo_enabled'] = bool(data['monte_carlo_enabled'])
+        PHASE2_CONFIG['monte_carlo_enabled'] = bool(data['monte_carlo_enabled'])
     if 'monte_carlo_simulations' in data:
-    PHASE2_CONFIG['monte_carlo_simulations'] = int(data['monte_carlo_simulations'])
-    monte_carlo.n_simulations = PHASE2_CONFIG['monte_carlo_simulations']
+        PHASE2_CONFIG['monte_carlo_simulations'] = int(data['monte_carlo_simulations'])
+        monte_carlo.n_simulations = PHASE2_CONFIG['monte_carlo_simulations']
 
     # Update Polynomial
     if 'polynomial_enabled' in data:
-    PHASE2_CONFIG['polynomial_enabled'] = bool(data['polynomial_enabled'])
+        PHASE2_CONFIG['polynomial_enabled'] = bool(data['polynomial_enabled'])
 
     logger.info(f"[PHASE2] Config updated: {PHASE2_CONFIG}")
 
     return {
-    "updated": True,
-    "config": PHASE2_CONFIG,
-    "timestamp": datetime.now().isoformat()
+        "updated": True,
+        "config": PHASE2_CONFIG,
+        "timestamp": datetime.now().isoformat()
     }
 
 @app.get("/dashboard")
 @app.get("/api/dashboard")
 async def dashboard():
     return {
-    "name": "[BODHI] Bodhi Genesis V13 - Phase 2 Advanced",
-    "version": VERSION,
-    "philosophy": "TU HOP NHAT + Kalman + Monte Carlo + Polynomial",
-    "pipeline": "Kalman -> V6 -> Poly -> Ensemble -> Meta -> MC -> PPO -> Trade -> Karma",
-    "entry_tf": "M15",
-    "v6_rules": {
-    "buy": f"RSI < {V6_CONFIG['rsi_buy_max']}",
-    "sell": f"RSI > {V6_CONFIG['rsi_sell_min']}",
-    "trend": f"ADX > {V6_CONFIG['adx_min']}",
-    "sessions": {sym: f"{s['start']}:00-{s['end']}:00" for sym, s in SYMBOL_SESSIONS.items()},
-    "cooldown": f"{V6_CONFIG['max_consecutive_losses']} losses = {V6_CONFIG['cooldown_hours']}h cooldown"
-    },
-    "phase1_ensemble": {
-    "mamba": {"loaded": ensemble_engine.mamba_loaded if ensemble_engine else False, "accuracy": "73.3%", "weight": "35%"},
-    "lstm": {"loaded": ensemble_engine.lstm_loaded if ensemble_engine else False, "accuracy": "74.2%", "weight": "40%"},
-    "transformer": {"loaded": ensemble_engine.transformer_loaded if ensemble_engine else False, "accuracy": "66.9%", "weight": "25%"},
-    "meta_labeler": {"loaded": ensemble_engine.meta_loaded if ensemble_engine else False},
-    },
-    "phase2_advanced": {
-    "kalman_filter": PHASE2_CONFIG['kalman_enabled'],
-    "monte_carlo": PHASE2_CONFIG['monte_carlo_enabled'],
-    "polynomial_features": PHASE2_CONFIG['polynomial_enabled'],
-    },
-    "meta_thresholds": {
-    "strong": f"{ENSEMBLE_CONFIG['meta_strong_threshold']:.0%} -> lot 1.0x",
-    "moderate": f"{ENSEMBLE_CONFIG['meta_moderate_threshold']:.0%} -> lot 0.75x",
-    "minimum": f"{ENSEMBLE_CONFIG['meta_minimum_threshold']:.0%} -> lot 0.5x"
-    },
-    "ppo_loaded": ppo_engine.model_loaded if ppo_engine else False,
-    "trade_records": data_logger.get_trade_count(),
-    "karma": karma_engine.get_all_karma(),
-    "retrain": retrain_engine.get_status(),
-    "timestamp": datetime.now().isoformat()
+        "name": "[BODHI] Bodhi Genesis V13 - Phase 2 Advanced",
+        "version": VERSION,
+        "philosophy": "TU HOP NHAT + Kalman + Monte Carlo + Polynomial",
+        "pipeline": "Kalman -> V6 -> Poly -> Ensemble -> Meta -> MC -> PPO -> Trade -> Karma",
+        "entry_tf": "M15",
+        "v6_rules": {
+            "buy": f"RSI < {V6_CONFIG['rsi_buy_max']}",
+            "sell": f"RSI > {V6_CONFIG['rsi_sell_min']}",
+            "trend": f"ADX > {V6_CONFIG['adx_min']}",
+            "sessions": {sym: f"{s['start']}:00-{s['end']}:00" for sym, s in SYMBOL_SESSIONS.items()},
+            "cooldown": f"{V6_CONFIG['max_consecutive_losses']} losses = {V6_CONFIG['cooldown_hours']}h cooldown"
+        },
+        "phase1_ensemble": {
+            "mamba": {"loaded": ensemble_engine.mamba_loaded if ensemble_engine else False, "accuracy": "73.3%", "weight": "35%"},
+            "lstm": {"loaded": ensemble_engine.lstm_loaded if ensemble_engine else False, "accuracy": "74.2%", "weight": "40%"},
+            "transformer": {"loaded": ensemble_engine.transformer_loaded if ensemble_engine else False, "accuracy": "66.9%", "weight": "25%"},
+            "meta_labeler": {"loaded": ensemble_engine.meta_loaded if ensemble_engine else False},
+        },
+        "phase2_advanced": {
+            "kalman_filter": PHASE2_CONFIG['kalman_enabled'],
+            "monte_carlo": PHASE2_CONFIG['monte_carlo_enabled'],
+            "polynomial_features": PHASE2_CONFIG['polynomial_enabled'],
+        },
+        "meta_thresholds": {
+            "strong": f"{ENSEMBLE_CONFIG['meta_strong_threshold']:.0%} -> lot 1.0x",
+            "moderate": f"{ENSEMBLE_CONFIG['meta_moderate_threshold']:.0%} -> lot 0.75x",
+            "minimum": f"{ENSEMBLE_CONFIG['meta_minimum_threshold']:.0%} -> lot 0.5x"
+        },
+        "ppo_loaded": ppo_engine.model_loaded if ppo_engine else False,
+        "trade_records": data_logger.get_trade_count(),
+        "karma": karma_engine.get_all_karma(),
+        "retrain": retrain_engine.get_status(),
+        "timestamp": datetime.now().isoformat()
     }
 
 # ======================================================================
@@ -3892,7 +3892,7 @@ async def get_shadow_status():
     """Get shadow portfolios status"""
 
     if not shadow_manager:
-    return {"success": False, "error": "Shadow manager not initialized"}
+        return {"success": False, "error": "Shadow manager not initialized"}
 
     portfolios = shadow_manager.portfolios
 
@@ -3903,12 +3903,12 @@ async def get_shadow_status():
     sentiment = shadow_manager._get_market_sentiment()
 
     return {
-    'success': True,
-    'live_portfolio': live,
-    'shadow_portfolios': shadows,
-    'total_shadows': len(shadows),
-    'market_sentiment': sentiment,
-    'timestamp': datetime.now().isoformat()
+        'success': True,
+        'live_portfolio': live,
+        'shadow_portfolios': shadows,
+        'total_shadows': len(shadows),
+        'market_sentiment': sentiment,
+        'timestamp': datetime.now().isoformat()
     }
 
 @app.get("/api/shadow/performance")
@@ -3916,86 +3916,86 @@ async def get_shadow_performance(days: int = 7):
     """Compare performance of all portfolios"""
 
     if not shadow_manager:
-    return {"success": False, "error": "Shadow manager not initialized"}
+        return {"success": False, "error": "Shadow manager not initialized"}
 
     try:
-    comparison = shadow_manager.compare_portfolios(days=days)
-    recommendation = shadow_manager.get_promotion_recommendation(comparison)
+        comparison = shadow_manager.compare_portfolios(days=days)
+        recommendation = shadow_manager.get_promotion_recommendation(comparison)
 
-    return {
-        'success': True,
-        'period_days': days,
-        'portfolios': comparison,
-        'recommendation': recommendation,
-        'timestamp': datetime.now().isoformat()
-    }
+        return {
+            'success': True,
+            'period_days': days,
+            'portfolios': comparison,
+            'recommendation': recommendation,
+            'timestamp': datetime.now().isoformat()
+        }
 
     except Exception as e:
-    logger.error(f"[SHADOW] Performance error: {e}")
-    return {"success": False, "error": str(e)}
+        logger.error(f"[SHADOW] Performance error: {e}")
+        return {"success": False, "error": str(e)}
 
 @app.post("/api/shadow/promote/{shadow_name}")
 async def promote_shadow(shadow_name: str):
     """Promote a shadow portfolio to live"""
 
     if not shadow_manager:
-    return {"success": False, "error": "Shadow manager not initialized"}
+        return {"success": False, "error": "Shadow manager not initialized"}
 
     try:
-    result = shadow_manager.promote_shadow_to_live(shadow_name)
+        result = shadow_manager.promote_shadow_to_live(shadow_name)
 
-    logger.warning(
-        f"[PROMOTION] '{result['old_live']}' → '{result['new_live']}' "
-        f"(v{result['new_version']})"
-    )
+        logger.warning(
+            f"[PROMOTION] '{result['old_live']}' → '{result['new_live']}' "
+            f"(v{result['new_version']})"
+        )
 
-    return result
+        return result
 
     except ValueError as e:
-    return {"success": False, "error": str(e)}
+        return {"success": False, "error": str(e)}
     except Exception as e:
-    logger.error(f"[SHADOW] Promotion error: {e}")
-    return {"success": False, "error": str(e)}
+        logger.error(f"[SHADOW] Promotion error: {e}")
+        return {"success": False, "error": str(e)}
 
 @app.patch("/api/shadow/traffic/{portfolio_name}")
 async def update_shadow_traffic(portfolio_name: str, traffic_pct: float):
     """Update traffic percentage for a shadow"""
 
     if not shadow_manager:
-    return {"success": False, "error": "Shadow manager not initialized"}
+        return {"success": False, "error": "Shadow manager not initialized"}
 
     if not (0 <= traffic_pct <= 100):
-    return {"success": False, "error": "traffic_pct must be 0-100"}
+        return {"success": False, "error": "traffic_pct must be 0-100"}
 
     try:
-    result = shadow_manager.update_traffic(portfolio_name, traffic_pct)
+        result = shadow_manager.update_traffic(portfolio_name, traffic_pct)
 
-    logger.info(
-        f"[SHADOW] Traffic updated: {portfolio_name} "
-        f"{result['old_traffic']}% → {result['new_traffic']}%"
-    )
+        logger.info(
+            f"[SHADOW] Traffic updated: {portfolio_name} "
+            f"{result['old_traffic']}% → {result['new_traffic']}%"
+        )
 
-    return result
+        return result
 
     except ValueError as e:
-    return {"success": False, "error": str(e)}
+        return {"success": False, "error": str(e)}
     except Exception as e:
-    logger.error(f"[SHADOW] Traffic error: {e}")
-    return {"success": False, "error": str(e)}
+        logger.error(f"[SHADOW] Traffic error: {e}")
+        return {"success": False, "error": str(e)}
 
 @app.get("/api/sentiment")
 async def get_market_sentiment():
     """Get current market sentiment from VADER worker"""
 
     if not shadow_manager:
-    return {"success": False, "error": "Shadow manager not initialized"}
+        return {"success": False, "error": "Shadow manager not initialized"}
 
     sentiment = shadow_manager._get_market_sentiment()
 
     return {
-    'success': True,
-    'sentiment': sentiment,
-    'timestamp': datetime.now().isoformat()
+        'success': True,
+        'sentiment': sentiment,
+        'timestamp': datetime.now().isoformat()
     }
 
 # ======================================================================
@@ -4013,8 +4013,8 @@ def run_scheduler():
     """Run scheduler in background"""
     schedule.every().sunday.at("06:00").do(scheduled_retrain)
     while True:
-    schedule.run_pending()
-    time_module.sleep(60)
+        schedule.run_pending()
+        time_module.sleep(60)
 
 # ======================================================================
 
@@ -4104,5 +4104,5 @@ def main():
 
     uvicorn.run(app, host=args.host, port=args.port)
 
-    if __name__ == "__main__":
+if __name__ == "__main__":
     main()
