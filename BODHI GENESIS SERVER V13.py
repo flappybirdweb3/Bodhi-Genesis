@@ -953,10 +953,10 @@ class SentimentReader:
                             if (now - update_time).seconds > 3600:
                                 self.cache['status'] = 'STALE'
                                 pass  # logger.warning("[SENTIMENT] Data is stale (>1h old)")
-                        except:
+                        except Exception:
                             pass
-        except Exception as e:
-            pass  # logger.warning(f"[SENTIMENT] Error reading file: {e}")
+        except Exception:
+            pass  # Silently ignore file read errors
         
         return self.cache
 
@@ -1699,8 +1699,8 @@ try:
     if sys.platform == 'win32':
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
         sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-except:
-    pass
+except Exception:
+    pass  # Older Python versions may not support reconfigure
 
 logging.basicConfig(level=logging.INFO, handlers=[file_handler, console_handler])
 logger = logging.getLogger(__name__)
@@ -2021,8 +2021,8 @@ class DataLogger:
             if os.path.exists(self.trades_file):
                 with open(self.trades_file, 'r') as f:
                     return sum(1 for _ in f) - 1  # Exclude header
-        except:
-            pass
+        except Exception:
+            pass  # Return 0 if file can't be read
         return 0
 
     def get_trades_df(self) -> pd.DataFrame:
@@ -2030,8 +2030,8 @@ class DataLogger:
         try:
             if os.path.exists(self.trades_file):
                 return pd.read_csv(self.trades_file)
-        except:
-            pass
+        except Exception:
+            pass  # Return empty DataFrame if file can't be read
         return pd.DataFrame()
 
 # ======================================================================
@@ -2374,8 +2374,8 @@ class KarmaEngine:
                     cooldown_until = last_loss_dt + timedelta(hours=V6_CONFIG['cooldown_hours'])
                     if datetime.now() < cooldown_until:
                         return True, f"Cooldown until {cooldown_until.strftime('%H:%M')}"
-                except:
-                    pass
+                except Exception:
+                    pass  # Invalid cooldown_until format
             k['consecutive_losses'] = 0
             self._save()
 
@@ -2778,8 +2778,8 @@ class EnsembleEngine:
                 if col not in df.columns:
                     df[col] = 0
             df = df[expected_cols]
-        except:
-            pass
+        except Exception:
+            pass  # Return df as-is if column processing fails
 
         return df
 
@@ -2806,12 +2806,6 @@ class EnsembleEngine:
             prob -= 0.20
 
         return max(0, min(1, prob))
-
-# ======================================================================
-
-# RETRAIN ENGINE
-
-# ======================================================================
 
 # ======================================================================
 
@@ -3030,8 +3024,8 @@ async def heartbeat(request: Request):
     if request.method == "POST":
         try:
             data = await request.json()
-        except:
-            pass
+        except Exception:
+            pass  # Use default empty data if JSON parsing fails
 
     raw_symbol = data.get('symbol', 'EURUSD')
     symbol = normalize_symbol(raw_symbol)
@@ -3083,8 +3077,8 @@ async def get_signal(request: Request):
     if request.method == "POST":
         try:
             data = await request.json()
-        except:
-            pass
+        except Exception:
+            pass  # Use default empty data if JSON parsing fails
 
     raw_symbol = data.get('symbol', 'EURUSD')
     symbol = normalize_symbol(raw_symbol)
@@ -3549,12 +3543,15 @@ async def get_signal(request: Request):
             }
         
             # Ensemble result format for shadows: [SELL_prob, HOLD_prob, BUY_prob]
-            # V13 ensemble_result has: predictions[0]=SELL, predictions[1]=HOLD, predictions[2]=BUY
-            ensemble_probs = [
-                ensemble_result['predictions'][0],  # SELL
-                ensemble_result['predictions'][1],  # HOLD
-                ensemble_result['predictions'][2]   # BUY
-            ]
+            # Construct from ensemble_signal (0-1 where 0=SELL, 0.5=HOLD, 1=BUY)
+            ens_sig = ensemble_result['ensemble_signal']
+            # Convert signal to probability distribution
+            if ens_sig > 0.55:  # BUY signal
+                ensemble_probs = [0.1, 0.2, ens_sig]  # Low SELL, Medium HOLD, High BUY
+            elif ens_sig < 0.45:  # SELL signal
+                ensemble_probs = [1 - ens_sig, 0.2, 0.1]  # High SELL, Medium HOLD, Low BUY
+            else:  # HOLD signal
+                ensemble_probs = [0.25, 0.5, 0.25]  # Balanced distribution for HOLD
         
             # Process each portfolio
             portfolio_results = {}
@@ -3674,8 +3671,8 @@ async def log_trade(request: Request):
             resp = await client.post("http://localhost:8888/trade_karma", json=token_data, timeout=5)
             if resp.status_code == 200:
                 token_result = resp.json()
-    except:
-        pass
+    except Exception:
+        pass  # Tokenomics integration is optional
 
     logger.info(f"[TRADE] {symbol} | {normalized_pips:.1f} pips | Karma: {karma_result['karma_after']:.0f}")
 
