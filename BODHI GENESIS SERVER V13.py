@@ -1624,7 +1624,7 @@ def calculate_pips(symbol: str, open_price: float, close_price: float,
         price_diff = close_price - open_price
         if trade_type.upper() == "SELL":
             price_diff = open_price - close_price
-        
+
         if 'US30' in base_symbol or 'DJI' in base_symbol or 'DOW' in base_symbol:
             return round(price_diff, 1)
         elif 'XAU' in base_symbol or 'GOLD' in base_symbol:
@@ -3064,10 +3064,10 @@ async def heartbeat(request: Request):
 @app.api_route("/api/signal", methods=["GET", "POST"])
 @app.api_route("/signal", methods=["GET", "POST"])
 async def get_signal(request: Request):
-"""
-V13 SIGNAL - Full Pipeline with Phase 2 Advanced Features
+    """
+    V13 SIGNAL - Full Pipeline with Phase 2 Advanced Features
 
-Pipeline:
+    Pipeline:
   1. Check cooldown (V6: 3 loss = cooldown)
   2. Check session (symbol-specific)
   3. [NEW] Kalman Filter - Denoise RSI/ADX signals
@@ -3078,50 +3078,50 @@ Pipeline:
   8. [NEW] Monte Carlo Risk Simulation
   9. PPO Risk validation
   10. Return final decision
-"""
-data = {}
-if request.method == "POST":
-    try:
-        data = await request.json()
-    except:
-        pass
+    """
+    data = {}
+    if request.method == "POST":
+        try:
+            data = await request.json()
+        except:
+            pass
 
-raw_symbol = data.get('symbol', 'EURUSD')
-symbol = normalize_symbol(raw_symbol)
+    raw_symbol = data.get('symbol', 'EURUSD')
+    symbol = normalize_symbol(raw_symbol)
 
-# Extract data - BACKWARD COMPATIBLE
-rsi_m5 = float(data.get('rsi_m5', 50))
-rsi_m15 = float(data.get('rsi_m15', 50))
-rsi_h1 = float(data.get('rsi_h1', 50))
-rsi_h4 = float(data.get('rsi_h4', 50))
-rsi_d1 = float(data.get('rsi_d1', rsi_h4))
+    # Extract data - BACKWARD COMPATIBLE
+    rsi_m5 = float(data.get('rsi_m5', 50))
+    rsi_m15 = float(data.get('rsi_m15', 50))
+    rsi_h1 = float(data.get('rsi_h1', 50))
+    rsi_h4 = float(data.get('rsi_h4', 50))
+    rsi_d1 = float(data.get('rsi_d1', rsi_h4))
 
-adx_m5 = float(data.get('adx_m5', 20))
-adx_m15 = float(data.get('adx_m15', adx_m5))
-adx_h4 = float(data.get('adx_h4', 20))
-adx_h1 = float(data.get('adx_h1', adx_h4))
-atr = float(data.get('atr', 0.001))
+    adx_m5 = float(data.get('adx_m5', 20))
+    adx_m15 = float(data.get('adx_m15', adx_m5))
+    adx_h4 = float(data.get('adx_h4', 20))
+    adx_h1 = float(data.get('adx_h1', adx_h4))
+    atr = float(data.get('atr', 0.001))
 
-main_trend = int(data.get('main_trend', 0))
-tema_d1 = float(data.get('tema_d1', 0))
-current_price = float(data.get('current_price', 0))
+    main_trend = int(data.get('main_trend', 0))
+    tema_d1 = float(data.get('tema_d1', 0))
+    current_price = float(data.get('current_price', 0))
 
-trades_today = int(data.get('trades_today', 0))
-consecutive_losses = int(data.get('consecutive_losses', 0))
-karma_from_ea = int(data.get('karma', 0))
+    trades_today = int(data.get('trades_today', 0))
+    consecutive_losses = int(data.get('consecutive_losses', 0))
+    karma_from_ea = int(data.get('karma', 0))
 
-# ===================================================================
-# STEP 1: COOLDOWN CHECK
-# ===================================================================
-in_cooldown, cooldown_reason = karma_engine.should_cooldown(symbol)
-if in_cooldown:
-    logger.warning(f"[COOLDOWN] {symbol} | {cooldown_reason}")
-    return {
-        "signal": 0, "signal_name": "HOLD", "confidence": 0,
-        "reason": cooldown_reason, "approved": False,
-        "meta_probability": 0, "signal_strength": "COOLDOWN",
-        "symbol": symbol, "timestamp": datetime.now().isoformat()
-    }
+    # ===================================================================
+    # STEP 1: COOLDOWN CHECK
+    # ===================================================================
+    in_cooldown, cooldown_reason = karma_engine.should_cooldown(symbol)
+    if in_cooldown:
+        logger.warning(f"[COOLDOWN] {symbol} | {cooldown_reason}")
+        return {
+            "signal": 0, "signal_name": "HOLD", "confidence": 0,
+            "reason": cooldown_reason, "approved": False,
+            "meta_probability": 0, "signal_strength": "COOLDOWN",
+            "symbol": symbol, "timestamp": datetime.now().isoformat()
+        }
 
 # ===================================================================
 # STEP 2: SESSION CHECK
@@ -3628,16 +3628,16 @@ return main_response
 @app.post("/api/trade")
 @app.post("/trade")
 async def log_trade(request: Request):
-"""Log trade result and update karma"""
-data = await request.json()
-if not data:
-raise HTTPException(status_code=400, detail="No data")
+    """Log trade result and update karma"""
+    data = await request.json()
+    if not data:
+    raise HTTPException(status_code=400, detail="No data")
 
-symbol = normalize_symbol(data.get('symbol', 'EURUSD'))
+    symbol = normalize_symbol(data.get('symbol', 'EURUSD'))
 
-# Normalize pips
-original_pips = data.get('profit_pips', 0)
-normalized_pips = normalize_pips(
+    # Normalize pips
+    original_pips = data.get('profit_pips', 0)
+    normalized_pips = normalize_pips(
     symbol=symbol,
     ea_pips=original_pips,
     profit_money=data.get('profit_money', 0),
@@ -3645,25 +3645,25 @@ normalized_pips = normalize_pips(
     open_price=data.get('open_price', 0),
     close_price=data.get('close_price', 0),
     trade_type=data.get('type', 'UNKNOWN')
-)
+    )
 
-if abs(normalized_pips - original_pips) > 1:
+    if abs(normalized_pips - original_pips) > 1:
     logger.info(f"[PIPS] Normalized {symbol}: {original_pips:.1f} -> {normalized_pips:.1f}")
 
-data['profit_pips'] = normalized_pips
-data['symbol'] = symbol
+    data['profit_pips'] = normalized_pips
+    data['symbol'] = symbol
 
-# Update karma
-karma_result = karma_engine.process_trade(data)
+    # Update karma
+    karma_result = karma_engine.process_trade(data)
 
-# Log trade
-data['karma_before'] = karma_result['karma_before']
-data['karma_after'] = karma_result['karma_after']
-data_logger.log_trade(data)
+    # Log trade
+    data['karma_before'] = karma_result['karma_before']
+    data['karma_after'] = karma_result['karma_after']
+    data_logger.log_trade(data)
 
-# Tokenomics integration (optional)
-token_result = None
-try:
+    # Tokenomics integration (optional)
+    token_result = None
+    try:
     import httpx
     async with httpx.AsyncClient() as client:
         token_data = {
@@ -3674,12 +3674,12 @@ try:
         resp = await client.post("http://localhost:8888/trade_karma", json=token_data, timeout=5)
         if resp.status_code == 200:
             token_result = resp.json()
-except:
+    except:
     pass
 
-logger.info(f"[TRADE] {symbol} | {normalized_pips:.1f} pips | Karma: {karma_result['karma_after']:.0f}")
+    logger.info(f"[TRADE] {symbol} | {normalized_pips:.1f} pips | Karma: {karma_result['karma_after']:.0f}")
 
-return {
+    return {
     "logged": True,
     "symbol": symbol,
     "profit_pips": normalized_pips,
@@ -3690,54 +3690,54 @@ return {
     "trade_count": data_logger.get_trade_count(),
     "pips_normalized": normalized_pips != original_pips,
     "timestamp": datetime.now().isoformat()
-}
+    }
 
 @app.get("/api/karma/{symbol}")
 @app.get("/karma/{symbol}")
 async def get_karma(symbol: str):
-s = normalize_symbol(symbol)
-return {"symbol": s, "karma": karma_engine.get_karma(s)}
+    s = normalize_symbol(symbol)
+    return {"symbol": s, "karma": karma_engine.get_karma(s)}
 
 @app.get("/api/karma")
 @app.get("/karma")
 async def get_all_karma():
-return {"karma": karma_engine.get_all_karma()}
+    return {"karma": karma_engine.get_all_karma()}
 
 @app.get("/api/retrain/status")
 @app.get("/retrain/status")
 async def retrain_status():
-return retrain_engine.get_status()
+    return retrain_engine.get_status()
 
 @app.post("/api/retrain/trigger")
 @app.post("/retrain/trigger")
 async def trigger_retrain():
-success = retrain_engine.retrain()
-return {
-"triggered": True,
-"success": success,
-"status": retrain_engine.get_status()
-}
+    success = retrain_engine.retrain()
+    return {
+    "triggered": True,
+    "success": success,
+    "status": retrain_engine.get_status()
+    }
 
 @app.post("/api/risk")
 async def check_risk(request: Request):
-"""Standalone risk check endpoint"""
-data = await request.json() if request.method == "POST" else {}
-result = ppo_engine.validate_signal(data) if ppo_engine else {'approved': True}
-return {**result, "timestamp": datetime.now().isoformat()}
+    """Standalone risk check endpoint"""
+    data = await request.json() if request.method == "POST" else {}
+    result = ppo_engine.validate_signal(data) if ppo_engine else {'approved': True}
+    return {**result, "timestamp": datetime.now().isoformat()}
 
 @app.post("/api/pipeline")
 async def full_pipeline(request: Request):
-"""Full pipeline endpoint - one call does everything"""
-data = await request.json()
-symbol = normalize_symbol(data.get('symbol', 'EURUSD'))
+    """Full pipeline endpoint - one call does everything"""
+    data = await request.json()
+    symbol = normalize_symbol(data.get('symbol', 'EURUSD'))
 
-# Get signal
-signal_result = await get_signal(request)
+    # Get signal
+    signal_result = await get_signal(request)
 
-# Get karma
-karma = karma_engine.get_karma(symbol)
+    # Get karma
+    karma = karma_engine.get_karma(symbol)
 
-return {
+    return {
     "pipeline": "V6 -> Ensemble -> Meta-Labeler -> PPO -> Karma",
     "ensemble": {
         "mamba": signal_result.get('mamba_signal', 0.5),
@@ -3761,125 +3761,125 @@ return {
     },
     "karma": karma,
     "timestamp": datetime.now().isoformat()
-}
+    }
 
 @app.get("/api/phase2")
 @app.get("/phase2")
 async def phase2_status():
-"""Get Phase 2 advanced features status"""
-return {
-"phase": 2,
-"name": "Advanced Features",
-"status": "ACTIVE",
-"features": {
-"kalman_filter": {
-"enabled": PHASE2_CONFIG['kalman_enabled'],
-"description": "Denoise RSI/ADX signals using Kalman filtering",
-"config": {
-"process_variance": PHASE2_CONFIG['kalman_process_variance'],
-"measurement_variance": PHASE2_CONFIG['kalman_measurement_variance']
-},
-"benefit": "Reduces false signals from market noise"
-},
-"monte_carlo": {
-"enabled": PHASE2_CONFIG['monte_carlo_enabled'],
-"description": "Risk simulation for DYNAMIC LOT SIZING (no filtering)",
-"config": {
-"simulations": PHASE2_CONFIG['monte_carlo_simulations'],
-"mode": "LOT_ADJUSTMENT_ONLY"
-},
-"lot_adjustments": {
-"STRONG_ENTRY": "lot x 1.25 (high win prob)",
-"NORMAL_ENTRY": "lot x 1.0 (default)",
-"WEAK_ENTRY": "lot x 0.75 (lower confidence)",
-"AVOID": "lot x 0.5 (still trades, smaller size)"
-},
-"benefit": "Dynamic lot sizing based on risk simulation - NO SIGNAL FILTERING"
-},
-"polynomial_features": {
-"enabled": PHASE2_CONFIG['polynomial_enabled'],
-"description": "Feature engineering: RSI^2, RSI*ADX interactions",
-"config": {
-"degree": PHASE2_CONFIG['polynomial_degree'],
-"interactions": PHASE2_CONFIG['polynomial_interactions']
-},
-"benefit": "Captures non-linear relationships in data"
-}
-},
-"pipeline": "Signal -> Kalman -> V6 -> Poly -> Ensemble -> Meta(FILTER) -> MC(LOT) -> PPO -> Trade",
-"filter_points": {
-"meta_labeler": "ONLY filter point - prob < 50% = FILTERED",
-"monte_carlo": "NO filter - only adjusts lot size"
-},
-"timestamp": datetime.now().isoformat()
-}
+    """Get Phase 2 advanced features status"""
+    return {
+    "phase": 2,
+    "name": "Advanced Features",
+    "status": "ACTIVE",
+    "features": {
+    "kalman_filter": {
+    "enabled": PHASE2_CONFIG['kalman_enabled'],
+    "description": "Denoise RSI/ADX signals using Kalman filtering",
+    "config": {
+    "process_variance": PHASE2_CONFIG['kalman_process_variance'],
+    "measurement_variance": PHASE2_CONFIG['kalman_measurement_variance']
+    },
+    "benefit": "Reduces false signals from market noise"
+    },
+    "monte_carlo": {
+    "enabled": PHASE2_CONFIG['monte_carlo_enabled'],
+    "description": "Risk simulation for DYNAMIC LOT SIZING (no filtering)",
+    "config": {
+    "simulations": PHASE2_CONFIG['monte_carlo_simulations'],
+    "mode": "LOT_ADJUSTMENT_ONLY"
+    },
+    "lot_adjustments": {
+    "STRONG_ENTRY": "lot x 1.25 (high win prob)",
+    "NORMAL_ENTRY": "lot x 1.0 (default)",
+    "WEAK_ENTRY": "lot x 0.75 (lower confidence)",
+    "AVOID": "lot x 0.5 (still trades, smaller size)"
+    },
+    "benefit": "Dynamic lot sizing based on risk simulation - NO SIGNAL FILTERING"
+    },
+    "polynomial_features": {
+    "enabled": PHASE2_CONFIG['polynomial_enabled'],
+    "description": "Feature engineering: RSI^2, RSI*ADX interactions",
+    "config": {
+    "degree": PHASE2_CONFIG['polynomial_degree'],
+    "interactions": PHASE2_CONFIG['polynomial_interactions']
+    },
+    "benefit": "Captures non-linear relationships in data"
+    }
+    },
+    "pipeline": "Signal -> Kalman -> V6 -> Poly -> Ensemble -> Meta(FILTER) -> MC(LOT) -> PPO -> Trade",
+    "filter_points": {
+    "meta_labeler": "ONLY filter point - prob < 50% = FILTERED",
+    "monte_carlo": "NO filter - only adjusts lot size"
+    },
+    "timestamp": datetime.now().isoformat()
+    }
 
 @app.post("/api/phase2/config")
 async def update_phase2_config(request: Request):
-"""Update Phase 2 configuration"""
-data = await request.json()
+    """Update Phase 2 configuration"""
+    data = await request.json()
 
-# Update Kalman
-if 'kalman_enabled' in data:
+    # Update Kalman
+    if 'kalman_enabled' in data:
     PHASE2_CONFIG['kalman_enabled'] = bool(data['kalman_enabled'])
 
-# Update Monte Carlo (lot adjustment only, no filter)
-if 'monte_carlo_enabled' in data:
+    # Update Monte Carlo (lot adjustment only, no filter)
+    if 'monte_carlo_enabled' in data:
     PHASE2_CONFIG['monte_carlo_enabled'] = bool(data['monte_carlo_enabled'])
-if 'monte_carlo_simulations' in data:
+    if 'monte_carlo_simulations' in data:
     PHASE2_CONFIG['monte_carlo_simulations'] = int(data['monte_carlo_simulations'])
     monte_carlo.n_simulations = PHASE2_CONFIG['monte_carlo_simulations']
 
-# Update Polynomial
-if 'polynomial_enabled' in data:
+    # Update Polynomial
+    if 'polynomial_enabled' in data:
     PHASE2_CONFIG['polynomial_enabled'] = bool(data['polynomial_enabled'])
 
-logger.info(f"[PHASE2] Config updated: {PHASE2_CONFIG}")
+    logger.info(f"[PHASE2] Config updated: {PHASE2_CONFIG}")
 
-return {
+    return {
     "updated": True,
     "config": PHASE2_CONFIG,
     "timestamp": datetime.now().isoformat()
-}
+    }
 
 @app.get("/dashboard")
 @app.get("/api/dashboard")
 async def dashboard():
-return {
-"name": "[BODHI] Bodhi Genesis V13 - Phase 2 Advanced",
-"version": VERSION,
-"philosophy": "TU HOP NHAT + Kalman + Monte Carlo + Polynomial",
-"pipeline": "Kalman -> V6 -> Poly -> Ensemble -> Meta -> MC -> PPO -> Trade -> Karma",
-"entry_tf": "M15",
-"v6_rules": {
-"buy": f"RSI < {V6_CONFIG['rsi_buy_max']}",
-"sell": f"RSI > {V6_CONFIG['rsi_sell_min']}",
-"trend": f"ADX > {V6_CONFIG['adx_min']}",
-"sessions": {sym: f"{s['start']}:00-{s['end']}:00" for sym, s in SYMBOL_SESSIONS.items()},
-"cooldown": f"{V6_CONFIG['max_consecutive_losses']} losses = {V6_CONFIG['cooldown_hours']}h cooldown"
-},
-"phase1_ensemble": {
-"mamba": {"loaded": ensemble_engine.mamba_loaded if ensemble_engine else False, "accuracy": "73.3%", "weight": "35%"},
-"lstm": {"loaded": ensemble_engine.lstm_loaded if ensemble_engine else False, "accuracy": "74.2%", "weight": "40%"},
-"transformer": {"loaded": ensemble_engine.transformer_loaded if ensemble_engine else False, "accuracy": "66.9%", "weight": "25%"},
-"meta_labeler": {"loaded": ensemble_engine.meta_loaded if ensemble_engine else False},
-},
-"phase2_advanced": {
-"kalman_filter": PHASE2_CONFIG['kalman_enabled'],
-"monte_carlo": PHASE2_CONFIG['monte_carlo_enabled'],
-"polynomial_features": PHASE2_CONFIG['polynomial_enabled'],
-},
-"meta_thresholds": {
-"strong": f"{ENSEMBLE_CONFIG['meta_strong_threshold']:.0%} -> lot 1.0x",
-"moderate": f"{ENSEMBLE_CONFIG['meta_moderate_threshold']:.0%} -> lot 0.75x",
-"minimum": f"{ENSEMBLE_CONFIG['meta_minimum_threshold']:.0%} -> lot 0.5x"
-},
-"ppo_loaded": ppo_engine.model_loaded if ppo_engine else False,
-"trade_records": data_logger.get_trade_count(),
-"karma": karma_engine.get_all_karma(),
-"retrain": retrain_engine.get_status(),
-"timestamp": datetime.now().isoformat()
-}
+    return {
+    "name": "[BODHI] Bodhi Genesis V13 - Phase 2 Advanced",
+    "version": VERSION,
+    "philosophy": "TU HOP NHAT + Kalman + Monte Carlo + Polynomial",
+    "pipeline": "Kalman -> V6 -> Poly -> Ensemble -> Meta -> MC -> PPO -> Trade -> Karma",
+    "entry_tf": "M15",
+    "v6_rules": {
+    "buy": f"RSI < {V6_CONFIG['rsi_buy_max']}",
+    "sell": f"RSI > {V6_CONFIG['rsi_sell_min']}",
+    "trend": f"ADX > {V6_CONFIG['adx_min']}",
+    "sessions": {sym: f"{s['start']}:00-{s['end']}:00" for sym, s in SYMBOL_SESSIONS.items()},
+    "cooldown": f"{V6_CONFIG['max_consecutive_losses']} losses = {V6_CONFIG['cooldown_hours']}h cooldown"
+    },
+    "phase1_ensemble": {
+    "mamba": {"loaded": ensemble_engine.mamba_loaded if ensemble_engine else False, "accuracy": "73.3%", "weight": "35%"},
+    "lstm": {"loaded": ensemble_engine.lstm_loaded if ensemble_engine else False, "accuracy": "74.2%", "weight": "40%"},
+    "transformer": {"loaded": ensemble_engine.transformer_loaded if ensemble_engine else False, "accuracy": "66.9%", "weight": "25%"},
+    "meta_labeler": {"loaded": ensemble_engine.meta_loaded if ensemble_engine else False},
+    },
+    "phase2_advanced": {
+    "kalman_filter": PHASE2_CONFIG['kalman_enabled'],
+    "monte_carlo": PHASE2_CONFIG['monte_carlo_enabled'],
+    "polynomial_features": PHASE2_CONFIG['polynomial_enabled'],
+    },
+    "meta_thresholds": {
+    "strong": f"{ENSEMBLE_CONFIG['meta_strong_threshold']:.0%} -> lot 1.0x",
+    "moderate": f"{ENSEMBLE_CONFIG['meta_moderate_threshold']:.0%} -> lot 0.75x",
+    "minimum": f"{ENSEMBLE_CONFIG['meta_minimum_threshold']:.0%} -> lot 0.5x"
+    },
+    "ppo_loaded": ppo_engine.model_loaded if ppo_engine else False,
+    "trade_records": data_logger.get_trade_count(),
+    "karma": karma_engine.get_all_karma(),
+    "retrain": retrain_engine.get_status(),
+    "timestamp": datetime.now().isoformat()
+    }
 
 # ======================================================================
 
@@ -3889,39 +3889,39 @@ return {
 
 @app.get("/api/shadow/status")
 async def get_shadow_status():
-"""Get shadow portfolios status"""
+    """Get shadow portfolios status"""
 
-if not shadow_manager:
+    if not shadow_manager:
     return {"success": False, "error": "Shadow manager not initialized"}
 
-portfolios = shadow_manager.portfolios
+    portfolios = shadow_manager.portfolios
 
-live = {name: info for name, info in portfolios.items() if info['is_live']}
-shadows = {name: info for name, info in portfolios.items() if not info['is_live']}
+    live = {name: info for name, info in portfolios.items() if info['is_live']}
+    shadows = {name: info for name, info in portfolios.items() if not info['is_live']}
 
-# Get sentiment
-sentiment = shadow_manager._get_market_sentiment()
+    # Get sentiment
+    sentiment = shadow_manager._get_market_sentiment()
 
-return {
+    return {
     'success': True,
     'live_portfolio': live,
     'shadow_portfolios': shadows,
     'total_shadows': len(shadows),
     'market_sentiment': sentiment,
     'timestamp': datetime.now().isoformat()
-}
+    }
 
 @app.get("/api/shadow/performance")
 async def get_shadow_performance(days: int = 7):
-"""Compare performance of all portfolios"""
+    """Compare performance of all portfolios"""
 
-if not shadow_manager:
+    if not shadow_manager:
     return {"success": False, "error": "Shadow manager not initialized"}
 
-try:
+    try:
     comparison = shadow_manager.compare_portfolios(days=days)
     recommendation = shadow_manager.get_promotion_recommendation(comparison)
-    
+
     return {
         'success': True,
         'period_days': days,
@@ -3930,73 +3930,73 @@ try:
         'timestamp': datetime.now().isoformat()
     }
 
-except Exception as e:
+    except Exception as e:
     logger.error(f"[SHADOW] Performance error: {e}")
     return {"success": False, "error": str(e)}
 
 @app.post("/api/shadow/promote/{shadow_name}")
 async def promote_shadow(shadow_name: str):
-"""Promote a shadow portfolio to live"""
+    """Promote a shadow portfolio to live"""
 
-if not shadow_manager:
+    if not shadow_manager:
     return {"success": False, "error": "Shadow manager not initialized"}
 
-try:
+    try:
     result = shadow_manager.promote_shadow_to_live(shadow_name)
-    
+
     logger.warning(
         f"[PROMOTION] '{result['old_live']}' → '{result['new_live']}' "
         f"(v{result['new_version']})"
     )
-    
+
     return result
 
-except ValueError as e:
+    except ValueError as e:
     return {"success": False, "error": str(e)}
-except Exception as e:
+    except Exception as e:
     logger.error(f"[SHADOW] Promotion error: {e}")
     return {"success": False, "error": str(e)}
 
 @app.patch("/api/shadow/traffic/{portfolio_name}")
 async def update_shadow_traffic(portfolio_name: str, traffic_pct: float):
-"""Update traffic percentage for a shadow"""
+    """Update traffic percentage for a shadow"""
 
-if not shadow_manager:
+    if not shadow_manager:
     return {"success": False, "error": "Shadow manager not initialized"}
 
-if not (0 <= traffic_pct <= 100):
+    if not (0 <= traffic_pct <= 100):
     return {"success": False, "error": "traffic_pct must be 0-100"}
 
-try:
+    try:
     result = shadow_manager.update_traffic(portfolio_name, traffic_pct)
-    
+
     logger.info(
         f"[SHADOW] Traffic updated: {portfolio_name} "
         f"{result['old_traffic']}% → {result['new_traffic']}%"
     )
-    
+
     return result
 
-except ValueError as e:
+    except ValueError as e:
     return {"success": False, "error": str(e)}
-except Exception as e:
+    except Exception as e:
     logger.error(f"[SHADOW] Traffic error: {e}")
     return {"success": False, "error": str(e)}
 
 @app.get("/api/sentiment")
 async def get_market_sentiment():
-"""Get current market sentiment from VADER worker"""
+    """Get current market sentiment from VADER worker"""
 
-if not shadow_manager:
+    if not shadow_manager:
     return {"success": False, "error": "Shadow manager not initialized"}
 
-sentiment = shadow_manager._get_market_sentiment()
+    sentiment = shadow_manager._get_market_sentiment()
 
-return {
+    return {
     'success': True,
     'sentiment': sentiment,
     'timestamp': datetime.now().isoformat()
-}
+    }
 
 # ======================================================================
 
@@ -4005,16 +4005,16 @@ return {
 # ======================================================================
 
 def scheduled_retrain():
-"""Scheduled retrain job"""
-logger.info("[SCHED] Scheduled retrain check…")
-retrain_engine.retrain()
+    """Scheduled retrain job"""
+    logger.info("[SCHED] Scheduled retrain check…")
+    retrain_engine.retrain()
 
 def run_scheduler():
-"""Run scheduler in background"""
-schedule.every().sunday.at("06:00").do(scheduled_retrain)
-while True:
-schedule.run_pending()
-time_module.sleep(60)
+    """Run scheduler in background"""
+    schedule.every().sunday.at("06:00").do(scheduled_retrain)
+    while True:
+    schedule.run_pending()
+    time_module.sleep(60)
 
 # ======================================================================
 
@@ -4023,86 +4023,86 @@ time_module.sleep(60)
 # ======================================================================
 
 def main():
-global ensemble_engine, ppo_engine
+    global ensemble_engine, ppo_engine
 
-import argparse
-parser = argparse.ArgumentParser(description='Bodhi Genesis V13 - Phase 2 Advanced')
-parser.add_argument('--port', type=int, default=DEFAULT_PORT, help='Server port')
-parser.add_argument('--host', type=str, default='0.0.0.0', help='Host')
-args = parser.parse_args()
+    import argparse
+    parser = argparse.ArgumentParser(description='Bodhi Genesis V13 - Phase 2 Advanced')
+    parser.add_argument('--port', type=int, default=DEFAULT_PORT, help='Server port')
+    parser.add_argument('--host', type=str, default='0.0.0.0', help='Host')
+    args = parser.parse_args()
 
-print("=" * 70)
-print("[BODHI] BODHI GENESIS SERVER V13 - PHASE 2 ADVANCED")
-print("   Ensemble + Kalman Filter + Monte Carlo + Polynomial Features")
-print("=" * 70)
-print("""
+    print("=" * 70)
+    print("[BODHI] BODHI GENESIS SERVER V13 - PHASE 2 ADVANCED")
+    print("   Ensemble + Kalman Filter + Monte Carlo + Polynomial Features")
+    print("=" * 70)
+    print("""
 
-PHASE 1 - ENSEMBLE MODELS:
-+—————–+–––––+––––+
-| Model           | Accuracy | Weight |
-+—————–+–––––+––––+
-| Mamba V10       | 73.3%    | 35%    |
-| BiLSTM          | 74.2%    | 40%    |
-| Transformer     | 66.9%    | 25%    |
-+—————–+–––––+––––+
+    PHASE 1 - ENSEMBLE MODELS:
+    +—————–+–––––+––––+
+    | Model           | Accuracy | Weight |
+    +—————–+–––––+––––+
+    | Mamba V10       | 73.3%    | 35%    |
+    | BiLSTM          | 74.2%    | 40%    |
+    | Transformer     | 66.9%    | 25%    |
+    +—————–+–––––+––––+
 
-PHASE 2 - ADVANCED FEATURES:
-+———————+–––––––––––––––––+
-| Feature             | Description                      |
-+———————+–––––––––––––––––+
-| Kalman Filter       | Denoise RSI/ADX, reduce noise    |
-| Monte Carlo         | Risk simulation, win probability |
-| Polynomial Features | RSI^2, RSI*ADX interactions      |
-+———————+–––––––––––––––––+
+    PHASE 2 - ADVANCED FEATURES:
+    +———————+–––––––––––––––––+
+    | Feature             | Description                      |
+    +———————+–––––––––––––––––+
+    | Kalman Filter       | Denoise RSI/ADX, reduce noise    |
+    | Monte Carlo         | Risk simulation, win probability |
+    | Polynomial Features | RSI^2, RSI*ADX interactions      |
+    +———————+–––––––––––––––––+
 
-FULL PIPELINE V13:
-Signal -> Kalman -> V6 -> Poly Features -> Ensemble
--> Meta-Labeler -> Monte Carlo -> PPO -> Trade -> Karma
+    FULL PIPELINE V13:
+    Signal -> Kalman -> V6 -> Poly Features -> Ensemble
+    -> Meta-Labeler -> Monte Carlo -> PPO -> Trade -> Karma
 
-BACKWARD COMPATIBLE with EA V4.13+
-""")
+    BACKWARD COMPATIBLE with EA V4.13+
+    """)
 
-# Initialize engines
-ensemble_engine = EnsembleEngine(MODELS_DIR)
-ppo_engine = PPORiskEngine(MODELS_DIR)
+    # Initialize engines
+    ensemble_engine = EnsembleEngine(MODELS_DIR)
+    ppo_engine = PPORiskEngine(MODELS_DIR)
 
-print(f"\n[*] Entry TF: M15")
-print(f"[*] Server: http://localhost:{args.port}")
-print(f"[*] Version: {VERSION}")
+    print(f"\n[*] Entry TF: M15")
+    print(f"[*] Server: http://localhost:{args.port}")
+    print(f"[*] Version: {VERSION}")
 
-print(f"\n[PHASE 1] Ensemble Models:")
-print(f"    Mamba:       {'[OK] Loaded (73.3%)' if ensemble_engine.mamba_loaded else '[X] Not found'}")
-print(f"    LSTM:        {'[OK] Loaded (74.2%)' if ensemble_engine.lstm_loaded else '[X] Not found'}")
-print(f"    Transformer: {'[OK] Loaded (66.9%)' if ensemble_engine.transformer_loaded else '[X] Not found'}")
-print(f"    Meta-Labeler: {'[OK] Loaded' if ensemble_engine.meta_loaded else '[X] Not found (pip install lightgbm)'}")
-print(f"    PPO Risk:    {'[OK] Loaded' if ppo_engine.model_loaded else '[!] Rule-based'}")
+    print(f"\n[PHASE 1] Ensemble Models:")
+    print(f"    Mamba:       {'[OK] Loaded (73.3%)' if ensemble_engine.mamba_loaded else '[X] Not found'}")
+    print(f"    LSTM:        {'[OK] Loaded (74.2%)' if ensemble_engine.lstm_loaded else '[X] Not found'}")
+    print(f"    Transformer: {'[OK] Loaded (66.9%)' if ensemble_engine.transformer_loaded else '[X] Not found'}")
+    print(f"    Meta-Labeler: {'[OK] Loaded' if ensemble_engine.meta_loaded else '[X] Not found (pip install lightgbm)'}")
+    print(f"    PPO Risk:    {'[OK] Loaded' if ppo_engine.model_loaded else '[!] Rule-based'}")
 
-print(f"\n[PHASE 2] Advanced Features:")
-print(f"    Kalman Filter:  {'[OK] Enabled' if PHASE2_CONFIG['kalman_enabled'] else '[X] Disabled'}")
-print(f"    Monte Carlo:    {'[OK] Enabled (' + str(PHASE2_CONFIG['monte_carlo_simulations']) + ' sims)' if PHASE2_CONFIG['monte_carlo_enabled'] else '[X] Disabled'}")
-print(f"    Polynomial:     {'[OK] Enabled (degree=' + str(PHASE2_CONFIG['polynomial_degree']) + ')' if PHASE2_CONFIG['polynomial_enabled'] else '[X] Disabled'}")
+    print(f"\n[PHASE 2] Advanced Features:")
+    print(f"    Kalman Filter:  {'[OK] Enabled' if PHASE2_CONFIG['kalman_enabled'] else '[X] Disabled'}")
+    print(f"    Monte Carlo:    {'[OK] Enabled (' + str(PHASE2_CONFIG['monte_carlo_simulations']) + ' sims)' if PHASE2_CONFIG['monte_carlo_enabled'] else '[X] Disabled'}")
+    print(f"    Polynomial:     {'[OK] Enabled (degree=' + str(PHASE2_CONFIG['polynomial_degree']) + ')' if PHASE2_CONFIG['polynomial_enabled'] else '[X] Disabled'}")
 
-print(f"\n[*] Trade records: {data_logger.get_trade_count()}")
-print(f"[*] Retrain: Sunday 6AM (min {RETRAIN_MIN_RECORDS} records)")
+    print(f"\n[*] Trade records: {data_logger.get_trade_count()}")
+    print(f"[*] Retrain: Sunday 6AM (min {RETRAIN_MIN_RECORDS} records)")
 
-print(f"\n[*] Endpoints:")
-print(f"   GET  /health          - Health check")
-print(f"   POST /api/signal      - Get AI signal (Full Pipeline V13)")
-print(f"   POST /api/trade       - Log trade result")
-print(f"   GET  /api/karma       - Get karma")
-print(f"   GET  /api/phase2      - Phase 2 status")
-print(f"   POST /api/pipeline    - Full pipeline response")
-print(f"   GET  /dashboard       - Full dashboard")
+    print(f"\n[*] Endpoints:")
+    print(f"   GET  /health          - Health check")
+    print(f"   POST /api/signal      - Get AI signal (Full Pipeline V13)")
+    print(f"   POST /api/trade       - Log trade result")
+    print(f"   GET  /api/karma       - Get karma")
+    print(f"   GET  /api/phase2      - Phase 2 status")
+    print(f"   POST /api/pipeline    - Full pipeline response")
+    print(f"   GET  /dashboard       - Full dashboard")
 
-# Start scheduler thread
-scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
-scheduler_thread.start()
-print(f"\n[*] Scheduler started (Sunday 6AM retrain)")
+    # Start scheduler thread
+    scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
+    scheduler_thread.start()
+    print(f"\n[*] Scheduler started (Sunday 6AM retrain)")
 
-print(f"\n[*] Starting FastAPI + Uvicorn...")
-print("=" * 70)
+    print(f"\n[*] Starting FastAPI + Uvicorn...")
+    print("=" * 70)
 
-uvicorn.run(app, host=args.host, port=args.port)
+    uvicorn.run(app, host=args.host, port=args.port)
 
-if __name__ == "__main__":
-main()
+    if __name__ == "__main__":
+    main()
