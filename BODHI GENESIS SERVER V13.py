@@ -106,15 +106,9 @@ NUMBA_AVAILABLE = False
 # Logger message printed after logger initialized
 
 # ======================================================================
-
+#
 # XGBOOST IMPORT (for Retrain Engine)
-
-# ======================================================================
-
-# ======================================================================
-
-# XGBOOST IMPORT (for Retrain Engine)
-
+#
 # ======================================================================
 
 try:
@@ -124,16 +118,6 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 XGBOOST_AVAILABLE = True
 except ImportError:
 XGBOOST_AVAILABLE = False
-
-try:
-import xgboost as xgb
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-XGBOOST_AVAILABLE = True
-# Logger message printed after logger initialized
-except ImportError:
-XGBOOST_AVAILABLE = False
-# Logger message printed after logger initialized
 if NUMBA_AVAILABLE:
 @jit(nopython=True, cache=True)
 def _monte_carlo_simulate_single(prices, returns_mean, returns_std, n_steps):
@@ -1559,6 +1543,22 @@ SYMBOL_MAP = {
 
 }
 
+BASE_PAIR_PREFIXES = (
+    'XAUUSD', 'XAGUSD', 'US30',
+    'EURUSD', 'EURGBP', 'EURJPY',
+    'GBPUSD', 'GBPJPY',
+    'USDJPY', 'USDCAD', 'AUDUSD',
+    'NZDUSD',
+)
+
+ALT_PREFIXES = (
+    ('GOLD', 'XAUUSD'),
+    ('SILVER', 'XAGUSD'),
+    ('DJ', 'US30'),
+    ('DOW', 'US30'),
+    ('USA30', 'US30'),
+)
+
 @lru_cache(maxsize=256)
 def normalize_symbol(raw_symbol: str) -> str:
 “””
@@ -1582,28 +1582,21 @@ symbol = raw_symbol.upper().strip()
 symbol = symbol.replace('#', '').replace('FX:', '').replace('FOREX:', '')
 
 # ═══════════════════════════════════════════════════════════════
+# LEGACY: Direct lookup in SYMBOL_MAP (backward compatibility)
+# ═══════════════════════════════════════════════════════════════
+normalized = SYMBOL_MAP.get(symbol)
+if normalized is not None:
+    return normalized
+
+# ═══════════════════════════════════════════════════════════════
 # WILDCARD MATCHING - Check if symbol STARTS WITH known pairs
 # Handles: EURUSD*, GBPUSD*, XAUUSD*, etc.
 # ═══════════════════════════════════════════════════════════════
 
 # Define all 12 base pairs in priority order
-BASE_PAIRS = [
-    # Metals first (to avoid XAU matching AUD)
-    'XAUUSD', 'XAGUSD',
-    # Indices
-    'US30',
-    # EUR cluster
-    'EURUSD', 'EURGBP', 'EURJPY',
-    # GBP cluster
-    'GBPUSD', 'GBPJPY',
-    # USD majors
-    'USDJPY', 'USDCAD', 'AUDUSD',
-    # Oceania
-    'NZDUSD'
-]
-
+# (configured once at module scope for speed)
 # Check if symbol starts with any base pair
-for base_pair in BASE_PAIRS:
+for base_pair in BASE_PAIR_PREFIXES:
     if symbol.startswith(base_pair):
         # Wildcard match! EURUSD* → EURUSD
         return base_pair
@@ -1611,25 +1604,9 @@ for base_pair in BASE_PAIRS:
 # ═══════════════════════════════════════════════════════════════
 # ALTERNATIVE NAMES (Gold, Silver, Dow, etc.)
 # ═══════════════════════════════════════════════════════════════
-
-# Gold variants
-if symbol.startswith('GOLD'):
-    return 'XAUUSD'
-
-# Silver variants
-if symbol.startswith('SILVER'):
-    return 'XAGUSD'
-
-# US30/Dow variants
-if symbol.startswith('DJ') or symbol.startswith('DOW') or symbol.startswith('USA30'):
-    return 'US30'
-
-# ═══════════════════════════════════════════════════════════════
-# LEGACY: Direct lookup in SYMBOL_MAP (backward compatibility)
-# ═══════════════════════════════════════════════════════════════
-
-if symbol in SYMBOL_MAP:
-    return SYMBOL_MAP[symbol]
+for prefix, canonical in ALT_PREFIXES:
+    if symbol.startswith(prefix):
+        return canonical
 
 # ═══════════════════════════════════════════════════════════════
 # FUZZY MATCHING (Last resort - for unusual formats)
@@ -1665,11 +1642,12 @@ return 'EURUSD'
 ```
 
 # ======================================================================
-
+#
 # PIPS NORMALIZATION
-
+#
 # ======================================================================
 
+@lru_cache(maxsize=256)
 def get_base_symbol(symbol: str) -> str:
 “”“Remove suffix like .cash, .a, .raw, etc.”””
 return symbol.replace(’.cash’, ‘’).replace(’.a’, ‘’).replace(’.raw’, ‘’).replace(’_’, ‘’).replace(’.’, ‘’).upper()
