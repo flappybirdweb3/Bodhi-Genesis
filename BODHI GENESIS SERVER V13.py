@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-“””
+"""
 [BODHI] BODHI GENESIS SERVER V13 - ADVANCED PHASE 2
 V12 Complete + Kalman Filter + Monte Carlo + Polynomial Features
 
@@ -36,7 +36,7 @@ Signal -> Kalman Denoise -> V6 Check -> Polynomial Features -> Ensemble
 Usage:
 uvicorn bodhi_server_v13_advanced:app –host 0.0.0.0 –port 9998 –reload
 python bodhi_server_v13_advanced.py –port 9998
-“””
+"""
 
 import os
 import sys
@@ -80,7 +80,7 @@ from torch.distributions import Categorical
 TORCH_AVAILABLE = True
 except ImportError:
 TORCH_AVAILABLE = False
-print(”[WARN] PyTorch not found - AI features disabled”)
+print("[WARN] PyTorch not found - AI features disabled")
 
 # ======================================================================
 
@@ -88,7 +88,7 @@ print(”[WARN] PyTorch not found - AI features disabled”)
 
 # ======================================================================
 
-VERSION = “13.1 (Phase 2+3: Kalman + MC + Poly + Sentiment + Kelly + VolumeProfile + DBSCAN)”
+VERSION = "13.1 (Phase 2+3: Kalman + MC + Poly + Sentiment + Kelly + VolumeProfile + DBSCAN)"
 
 # ======================================================================
 
@@ -121,12 +121,11 @@ XGBOOST_AVAILABLE = False
 if NUMBA_AVAILABLE:
 @jit(nopython=True, cache=True)
 def _monte_carlo_simulate_single(prices, returns_mean, returns_std, n_steps):
-“”“Single Monte Carlo simulation (JIT compiled)”””
+"""Single Monte Carlo simulation (JIT compiled)"""
 current_price = prices[-1]
 max_price = current_price
 min_price = current_price
 
-```
     for _ in range(n_steps):
         ret = np.random.normal(returns_mean, returns_std)
         current_price *= (1 + ret)
@@ -224,23 +223,22 @@ def find_swing_lows_fast(prices, window=5):
     return np.array(swings)
 
 pass  # logger.info("✅ Numba JIT functions compiled")
-```
 
 else:
 # Dummy functions if Numba not available
 def monte_carlo_fast(*args, **kwargs):
-raise NotImplementedError(“Numba not installed”)
+raise NotImplementedError("Numba not installed")
 def kalman_filter_array_fast(*args, **kwargs):
-raise NotImplementedError(“Numba not installed”)
+raise NotImplementedError("Numba not installed")
 def find_swing_highs_fast(*args, **kwargs):
-raise NotImplementedError(“Numba not installed”)
+raise NotImplementedError("Numba not installed")
 def find_swing_lows_fast(*args, **kwargs):
-raise NotImplementedError(“Numba not installed”)
+raise NotImplementedError("Numba not installed")
 DEFAULT_PORT = 9998
 
-DATA_DIR = “./bodhi_data”
-LOGS_DIR = “./bodhi_logs”
-MODELS_DIR = “./bodhi_models”
+DATA_DIR = "./bodhi_data"
+LOGS_DIR = "./bodhi_logs"
+MODELS_DIR = "./bodhi_models"
 
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -250,9 +248,8 @@ MODELS_DIR = “./bodhi_models”
 
 SYMBOLS = [
 # EUR Cluster (London session)
-‘EURUSD’, ‘EURGBP’, ‘EURJPY’,
+'EURUSD', 'EURGBP', 'EURJPY',
 
-```
 # GBP Cluster (London session)
 'GBPUSD', 'GBPJPY',
 
@@ -264,11 +261,10 @@ SYMBOLS = [
 
 # Oceania
 'NZDUSD'
-```
 
 ]
 
-SIGNAL_NAMES = {0: ‘SELL’, 1: ‘HOLD’, 2: ‘BUY’}
+SIGNAL_NAMES = {0: 'SELL', 1: 'HOLD', 2: 'BUY'}
 
 # Retrain config
 
@@ -284,18 +280,16 @@ RETRAIN_HOUR = 6  # 6 AM
 
 V6_CONFIG = {
 # Entry conditions
-‘rsi_buy_max’: 45,       # RSI < 45 = BUY pullback
-‘rsi_sell_min’: 55,      # RSI > 55 = SELL pullback
-‘adx_min’: 20,           # ADX > 20 = Có trend
+'rsi_buy_max': 45,       # RSI < 45 = BUY pullback
+'rsi_sell_min': 55,      # RSI > 55 = SELL pullback
+'adx_min': 20,           # ADX > 20 = Có trend
 
-```
 # Risk management
 'max_consecutive_losses': 3,  # 3 loss = cooldown
 'cooldown_hours': 4,
 
 # Karma thresholds
 'karma_min': -20,        # Dưới -20 = Dừng trade
-```
 
 }
 
@@ -309,11 +303,10 @@ V6_CONFIG = {
 
 SYMBOL_SESSIONS = {
 # EUR Cluster (London + NY overlap)
-‘EURUSD’: {‘start’: 7, ‘end’: 20},   # London 7-16h + NY 13-20h overlap
-‘EURGBP’: {‘start’: 7, ‘end’: 16},   # London only (both EU currencies)
-‘EURJPY’: {‘start’: 7, ‘end’: 16},   # London session (avoid Tokyo for EUR)
+'EURUSD': {'start': 7, 'end': 20},   # London 7-16h + NY 13-20h overlap
+'EURGBP': {'start': 7, 'end': 16},   # London only (both EU currencies)
+'EURJPY': {'start': 7, 'end': 16},   # London session (avoid Tokyo for EUR)
 
-```
 # GBP Cluster (London + NY overlap)
 'GBPUSD': {'start': 7, 'end': 20},   # London + NY overlap (best liquidity)
 'GBPJPY': {'start': 7, 'end': 16},   # London only (high volatility)
@@ -332,7 +325,6 @@ SYMBOL_SESSIONS = {
 
 # Oceania (Early Asia)
 'NZDUSD': {'start': 0, 'end': 9}     # Wellington + Sydney
-```
 
 }
 
@@ -346,14 +338,13 @@ SYMBOL_SESSIONS = {
 
 PIP_MULTIPLIERS = {
 # Standard FX pairs (5 decimals: 1.23456)
-‘EURUSD’: 10000,    # 1 pip = 0.0001
-‘GBPUSD’: 10000,
-‘USDCAD’: 10000,
-‘AUDUSD’: 10000,
-‘NZDUSD’: 10000,
-‘EURGBP’: 10000,
+'EURUSD': 10000,    # 1 pip = 0.0001
+'GBPUSD': 10000,
+'USDCAD': 10000,
+'AUDUSD': 10000,
+'NZDUSD': 10000,
+'EURGBP': 10000,
 
-```
 # JPY pairs (3 decimals: 123.456)
 'USDJPY': 100,      # 1 pip = 0.01
 'EURJPY': 100,
@@ -365,7 +356,6 @@ PIP_MULTIPLIERS = {
 
 # Indices
 'US30': 100         # Dow (2 decimals: 35000.12)
-```
 
 }
 
@@ -377,14 +367,13 @@ PIP_MULTIPLIERS = {
 
 MAX_SPREADS = {
 # Tight spreads (Major pairs)
-‘EURUSD’: 2.0,
-‘GBPUSD’: 2.5,
-‘USDJPY’: 2.0,
-‘USDCAD’: 2.5,
-‘AUDUSD’: 2.5,
-‘NZDUSD’: 3.0,
+'EURUSD': 2.0,
+'GBPUSD': 2.5,
+'USDJPY': 2.0,
+'USDCAD': 2.5,
+'AUDUSD': 2.5,
+'NZDUSD': 3.0,
 
-```
 # Medium spreads (Crosses)
 'EURGBP': 3.0,
 'EURJPY': 4.0,
@@ -394,7 +383,6 @@ MAX_SPREADS = {
 'XAUUSD': 5.0,
 'XAGUSD': 8.0,
 'US30': 5.0
-```
 
 }
 
@@ -406,11 +394,10 @@ MAX_SPREADS = {
 
 ENSEMBLE_CONFIG = {
 # Model weights (based on accuracy)
-‘mamba_weight’: 0.35,       # 73.3%
-‘lstm_weight’: 0.40,        # 74.2% (highest)
-‘transformer_weight’: 0.25, # 66.9%
+'mamba_weight': 0.35,       # 73.3%
+'lstm_weight': 0.40,        # 74.2% (highest)
+'transformer_weight': 0.25, # 66.9%
 
-```
 # Decision thresholds
 'ensemble_buy_threshold': 0.55,
 'ensemble_sell_threshold': 0.45,
@@ -423,7 +410,6 @@ ENSEMBLE_CONFIG = {
 # Consensus requirement
 'require_consensus': True,  # 2/3 models must agree
 'consensus_min_models': 2,
-```
 
 }
 
@@ -434,12 +420,12 @@ ENSEMBLE_CONFIG = {
 # ======================================================================
 
 KARMA_LEVELS = {
-‘BUDDHA’: {‘min’: 200, ‘mult’: 2.0, ‘color’: ‘magenta’},
-‘BODHISATTVA’: {‘min’: 100, ‘mult’: 1.5, ‘color’: ‘gold’},
-‘ARHAT’: {‘min’: 50, ‘mult’: 1.25, ‘color’: ‘cyan’},
-‘MONK’: {‘min’: 20, ‘mult’: 1.0, ‘color’: ‘green’},
-‘NOVICE’: {‘min’: 0, ‘mult’: 1.0, ‘color’: ‘gray’},
-‘SAMSARA’: {‘min’: -100, ‘mult’: 0.5, ‘color’: ‘red’},
+'BUDDHA': {'min': 200, 'mult': 2.0, 'color': 'magenta'},
+'BODHISATTVA': {'min': 100, 'mult': 1.5, 'color': 'gold'},
+'ARHAT': {'min': 50, 'mult': 1.25, 'color': 'cyan'},
+'MONK': {'min': 20, 'mult': 1.0, 'color': 'green'},
+'NOVICE': {'min': 0, 'mult': 1.0, 'color': 'gray'},
+'SAMSARA': {'min': -100, 'mult': 0.5, 'color': 'red'},
 }
 
 # ======================================================================
@@ -449,47 +435,47 @@ KARMA_LEVELS = {
 # ======================================================================
 
 TREND_CONFIG = {
-‘STRONG’: {
-‘adx_min’: 40,
-‘tema_dist_min’: 0.5,
-‘lot_mult’: 1.5,
-‘sl_atr’: 2.0,
-‘tp1_atr’: 3.0,
-‘tp2_atr’: 5.0,
-‘max_trades’: 5
+'STRONG': {
+'adx_min': 40,
+'tema_dist_min': 0.5,
+'lot_mult': 1.5,
+'sl_atr': 2.0,
+'tp1_atr': 3.0,
+'tp2_atr': 5.0,
+'max_trades': 5
 },
-‘MODERATE’: {
-‘adx_min’: 25,
-‘tema_dist_min’: 0.1,
-‘lot_mult’: 1.0,
-‘sl_atr’: 1.5,
-‘tp1_atr’: 2.0,
-‘tp2_atr’: 4.0,
-‘max_trades’: 3
+'MODERATE': {
+'adx_min': 25,
+'tema_dist_min': 0.1,
+'lot_mult': 1.0,
+'sl_atr': 1.5,
+'tp1_atr': 2.0,
+'tp2_atr': 4.0,
+'max_trades': 3
 },
-‘WEAK’: {
-‘adx_min’: 0,
-‘tema_dist_min’: 0,
-‘lot_mult’: 0.5,
-‘sl_atr’: 1.0,
-‘tp1_atr’: 1.2,
-‘tp2_atr’: 2.0,
-‘max_trades’: 1
+'WEAK': {
+'adx_min': 0,
+'tema_dist_min': 0,
+'lot_mult': 0.5,
+'sl_atr': 1.0,
+'tp1_atr': 1.2,
+'tp2_atr': 2.0,
+'max_trades': 1
 }
 }
 
 def get_trend_strength(adx_h4: float, rsi_h4: float, tema_dist_pct: float) -> str:
-“”“Classify trend strength: STRONG / MODERATE / WEAK”””
+"""Classify trend strength: STRONG / MODERATE / WEAK"""
 if adx_h4 >= 40 and tema_dist_pct >= 0.5:
 if rsi_h4 > 60 or rsi_h4 < 40:
-return ‘STRONG’
+return 'STRONG'
 if adx_h4 >= 25 and tema_dist_pct >= 0.1:
-return ‘MODERATE’
-return ‘WEAK’
+return 'MODERATE'
+return 'WEAK'
 
 def get_trend_params(trend_strength: str) -> dict:
-“”“Get adaptive parameters for given trend strength”””
-return TREND_CONFIG.get(trend_strength, TREND_CONFIG[‘MODERATE’])
+"""Get adaptive parameters for given trend strength"""
+return TREND_CONFIG.get(trend_strength, TREND_CONFIG['MODERATE'])
 
 # ======================================================================
 
@@ -498,11 +484,10 @@ return TREND_CONFIG.get(trend_strength, TREND_CONFIG[‘MODERATE’])
 # ======================================================================
 
 class KalmanFilter:
-“””
+"""
 Kalman Filter for denoising RSI/ADX signals.
 Reduces false signals caused by market noise.
 
-```
 State: [value, velocity]
 Measurement: raw value
 """
@@ -582,15 +567,13 @@ def filter_series(self, values: List[float]) -> List[float]:
     """Filter a series of values"""
     self.reset(values[0] if values else 50.0)
     return [self.update(v) for v in values]
-```
 
 class KalmanFilterBank:
-“””
+"""
 Bank of Kalman Filters for multiple indicators per symbol.
 Maintains state across API calls.
-“””
+"""
 
-```
 def __init__(self):
     self.filters = {}  # {symbol: {indicator: KalmanFilter}}
     self.lock = Lock()
@@ -627,7 +610,6 @@ def filter_indicators(self, symbol: str, data: Dict[str, float]) -> Dict[str, fl
                 filtered[f"{key}_kalman"] = kf.update(float(value))
                 filtered[f"{key}_velocity"] = kf.get_velocity()
         return filtered
-```
 
 # ======================================================================
 
@@ -636,12 +618,11 @@ def filter_indicators(self, symbol: str, data: Dict[str, float]) -> Dict[str, fl
 # ======================================================================
 
 class MonteCarloSimulator:
-“””
+"""
 Monte Carlo simulation for trade risk estimation.
 Simulates multiple scenarios to estimate win probability.
-“””
+"""
 
-```
 def __init__(self, n_simulations: int = 1000):
     self.n_simulations = n_simulations
     
@@ -767,7 +748,6 @@ def simulate_trade(self,
 def update_volatility(self, symbol: str, volatility: float):
     """Update volatility estimate from real data"""
     self.volatility[symbol] = volatility
-```
 
 # ======================================================================
 
@@ -776,12 +756,11 @@ def update_volatility(self, symbol: str, volatility: float):
 # ======================================================================
 
 class PolynomialFeatureGenerator:
-“””
+"""
 Generate polynomial and interaction features for better predictions.
 Creates: RSI^2, ADX^2, RSI*ADX, normalized features, etc.
-“””
+"""
 
-```
 def __init__(self, degree: int = 2, include_interactions: bool = True):
     self.degree = degree
     self.include_interactions = include_interactions
@@ -886,7 +865,6 @@ def get_feature_vector(self, data: Dict[str, float],
         ]
     
     return np.array([features.get(name, 0) for name in feature_names])
-```
 
 # ======================================================================
 
@@ -896,11 +874,10 @@ def get_feature_vector(self, data: Dict[str, float],
 
 PHASE2_CONFIG = {
 # Kalman Filter
-‘kalman_enabled’: True,
-‘kalman_process_variance’: 0.05,
-‘kalman_measurement_variance’: 0.2,
+'kalman_enabled': True,
+'kalman_process_variance': 0.05,
+'kalman_measurement_variance': 0.2,
 
-```
 # Monte Carlo - LOT ADJUSTMENT (không filter)
 'monte_carlo_enabled': True,
 'monte_carlo_simulations': 1000,
@@ -910,17 +887,16 @@ PHASE2_CONFIG = {
 'polynomial_enabled': True,
 'polynomial_degree': 2,
 'polynomial_interactions': True,
-```
 
 }
 
 # Global Phase 2 instances
 
 kalman_bank = KalmanFilterBank()
-monte_carlo = MonteCarloSimulator(n_simulations=PHASE2_CONFIG[‘monte_carlo_simulations’])
+monte_carlo = MonteCarloSimulator(n_simulations=PHASE2_CONFIG['monte_carlo_simulations'])
 poly_features = PolynomialFeatureGenerator(
-degree=PHASE2_CONFIG[‘polynomial_degree’],
-include_interactions=PHASE2_CONFIG[‘polynomial_interactions’]
+degree=PHASE2_CONFIG['polynomial_degree'],
+include_interactions=PHASE2_CONFIG['polynomial_interactions']
 )
 
 # ======================================================================
@@ -930,12 +906,11 @@ include_interactions=PHASE2_CONFIG[‘polynomial_interactions’]
 # ======================================================================
 
 class SentimentReader:
-“””
+"""
 Đọc sentiment từ JSON file (được tạo bởi News_Sentiment_Worker.py)
 VADER-based, chạy CPU, không cần GPU.
-“””
+"""
 
-```
 def __init__(self, sentiment_file: str = "./bodhi_data/market_sentiment.json"):
     self.sentiment_file = sentiment_file
     self.cache = {
@@ -1026,7 +1001,6 @@ def should_trade_with_sentiment(self, signal: int) -> Tuple[bool, float]:
             return True, 0.7  # Reduce confidence
     
     return True, 1.0
-```
 
 # ======================================================================
 
@@ -1035,11 +1009,10 @@ def should_trade_with_sentiment(self, signal: int) -> Tuple[bool, float]:
 # ======================================================================
 
 class KellyCriterion:
-“””
+"""
 Kelly Criterion cho dynamic lot sizing.
 f* = (p * b - q) / b
 
-```
 Trong đó:
 - p = probability of winning (từ Meta-Labeler)
 - q = probability of losing (1 - p)
@@ -1107,7 +1080,6 @@ def calculate(self, win_probability: float, reward_risk_ratio: float) -> Dict:
         'win_prob': round(p, 3),
         'rr_ratio': round(b, 2)
     }
-```
 
 # ======================================================================
 
@@ -1116,12 +1088,11 @@ def calculate(self, win_probability: float, reward_risk_ratio: float) -> Dict:
 # ======================================================================
 
 class VolumeProfile:
-“””
+"""
 Volume Profile Analysis - Tìm POC và Value Area.
 Chạy hoàn toàn trên CPU với numpy.
-“””
+"""
 
-```
 def __init__(self, num_bins: int = 50, value_area_pct: float = 0.70):
     """
     Args:
@@ -1244,7 +1215,6 @@ def _empty_result(self) -> Dict:
         'position': 'UNKNOWN', 'bias': 0,
         'current_price': 0, 'total_volume': 0, 'bins': 0
     }
-```
 
 # ======================================================================
 
@@ -1253,12 +1223,11 @@ def _empty_result(self) -> Dict:
 # ======================================================================
 
 class DBSCANSupportResistance:
-“””
+"""
 DBSCAN Clustering để tự động tìm vùng Support/Resistance.
 Chạy hoàn toàn trên CPU với scikit-learn.
-“””
+"""
 
-```
 def __init__(self, eps_pct: float = 0.002, min_samples: int = 3):
     """
     Args:
@@ -1397,7 +1366,6 @@ def _empty_result(self) -> Dict:
         'current_price': 0,
         'zone_count': 0
     }
-```
 
 # ======================================================================
 
@@ -1407,10 +1375,9 @@ def _empty_result(self) -> Dict:
 
 PHASE3_CONFIG = {
 # Sentiment (NHAN)
-‘sentiment_enabled’: True,
-‘sentiment_file’: ‘./bodhi_data/market_sentiment.json’,
+'sentiment_enabled': True,
+'sentiment_file': './bodhi_data/market_sentiment.json',
 
-```
 # Kelly Criterion
 'kelly_enabled': True,
 'kelly_max_fraction': 0.5,  # Half Kelly (conservative)
@@ -1425,24 +1392,23 @@ PHASE3_CONFIG = {
 'dbscan_enabled': True,
 'dbscan_eps_pct': 0.002,  # 0.2% price distance
 'dbscan_min_samples': 3,
-```
 
 }
 
 # Global Phase 3 instances
 
-sentiment_reader = SentimentReader(PHASE3_CONFIG[‘sentiment_file’])
+sentiment_reader = SentimentReader(PHASE3_CONFIG['sentiment_file'])
 kelly_criterion = KellyCriterion(
-max_kelly_fraction=PHASE3_CONFIG[‘kelly_max_fraction’],
-min_kelly_fraction=PHASE3_CONFIG[‘kelly_min_fraction’]
+max_kelly_fraction=PHASE3_CONFIG['kelly_max_fraction'],
+min_kelly_fraction=PHASE3_CONFIG['kelly_min_fraction']
 )
 volume_profile = VolumeProfile(
-num_bins=PHASE3_CONFIG[‘volume_profile_bins’],
-value_area_pct=PHASE3_CONFIG[‘value_area_pct’]
+num_bins=PHASE3_CONFIG['volume_profile_bins'],
+value_area_pct=PHASE3_CONFIG['value_area_pct']
 )
 dbscan_sr = DBSCANSupportResistance(
-eps_pct=PHASE3_CONFIG[‘dbscan_eps_pct’],
-min_samples=PHASE3_CONFIG[‘dbscan_min_samples’]
+eps_pct=PHASE3_CONFIG['dbscan_eps_pct'],
+min_samples=PHASE3_CONFIG['dbscan_min_samples']
 )
 
 # ======================================================================
@@ -1482,7 +1448,6 @@ SYMBOL_MAP = {
 # 12 PAIRS SYMBOL MAPPING - Broker variants to Bodhi standard
 # ═══════════════════════════════════════════════════════════════
 
-```
 # EUR Cluster
 'EURUSD': 'EURUSD', 'EURUSD.A': 'EURUSD', 'EURUSDX': 'EURUSD',
 'EURUSD_': 'EURUSD', 'EURUSD.': 'EURUSD', 'EURUSDC': 'EURUSD',
@@ -1539,7 +1504,6 @@ SYMBOL_MAP = {
 'NZDUSD': 'NZDUSD', 'NZDUSD.A': 'NZDUSD', 'NZDUSDX': 'NZDUSD',
 'NZDUSD_': 'NZDUSD', 'NZDUSD.': 'NZDUSD', 'NZDUSDC': 'NZDUSD',
 'NZDUSD.RAW': 'NZDUSD', 'NZDUSDM': 'NZDUSD',
-```
 
 }
 
@@ -1561,10 +1525,9 @@ ALT_PREFIXES = (
 
 @lru_cache(maxsize=256)
 def normalize_symbol(raw_symbol: str) -> str:
-“””
+"""
 Normalize broker-specific symbol to Bodhi standard (12 pairs support)
 
-```
 Handles wildcard matching:
 - EURUSD* → EURUSD (e.g., EURUSDm, EURUSDpro, EURUSD.raw, etc.)
 - GBPUSD* → GBPUSD
@@ -1639,7 +1602,6 @@ if 'NZD' in symbol and 'USD' in symbol: return 'NZDUSD'
 # Unknown symbol - log warning and default
 logger.warning(f"Unknown symbol: {raw_symbol} - defaulting to EURUSD")
 return 'EURUSD'
-```
 
 # ======================================================================
 #
@@ -1649,15 +1611,14 @@ return 'EURUSD'
 
 @lru_cache(maxsize=256)
 def get_base_symbol(symbol: str) -> str:
-“”“Remove suffix like .cash, .a, .raw, etc.”””
-return symbol.replace(’.cash’, ‘’).replace(’.a’, ‘’).replace(’.raw’, ‘’).replace(’_’, ‘’).replace(’.’, ‘’).upper()
+"""Remove suffix like .cash, .a, .raw, etc."""
+return symbol.replace('.cash', '').replace('.a', '').replace('.raw', '').replace('_', '').replace('.', '').upper()
 
 def calculate_pips(symbol: str, open_price: float, close_price: float,
-profit_money: float, lot: float, trade_type: str = “UNKNOWN”) -> float:
-“”“Calculate profit pips from price or estimate from profit money.”””
+profit_money: float, lot: float, trade_type: str = "UNKNOWN") -> float:
+"""Calculate profit pips from price or estimate from profit money."""
 base_symbol = get_base_symbol(symbol)
 
-```
 # METHOD 1: Calculate from prices
 if open_price > 0 and close_price > 0:
     price_diff = close_price - open_price
@@ -1691,15 +1652,13 @@ pip_value = pip_value_per_lot * lot
 if pip_value > 0:
     return round(profit_money / pip_value, 1)
 return 0.0
-```
 
 def normalize_pips(symbol: str, ea_pips: float, profit_money: float, lot: float,
-open_price: float = 0, close_price: float = 0, trade_type: str = “UNKNOWN”) -> float:
-“”“Normalize pips from EA - use price if available, validate otherwise.”””
+open_price: float = 0, close_price: float = 0, trade_type: str = "UNKNOWN") -> float:
+"""Normalize pips from EA - use price if available, validate otherwise."""
 if open_price > 0 and close_price > 0:
 return calculate_pips(symbol, open_price, close_price, profit_money, lot, trade_type)
 
-```
 if profit_money == 0:
     return 0.0
 
@@ -1711,7 +1670,6 @@ if expected_pips != 0:
         return ea_pips
 
 return expected_pips
-```
 
 # ======================================================================
 
@@ -1724,11 +1682,11 @@ os.makedirs(d, exist_ok=True)
 
 # Configure logging with UTF-8 support for Windows
 
-log_formatter = logging.Formatter(’%(asctime)s [%(levelname)s] %(message)s’)
+log_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
 
 # File handler with UTF-8
 
-file_handler = logging.FileHandler(os.path.join(LOGS_DIR, ‘server_v12.log’), encoding=‘utf-8’)
+file_handler = logging.FileHandler(os.path.join(LOGS_DIR, 'server_v12.log'), encoding='utf-8')
 file_handler.setFormatter(log_formatter)
 
 # Console handler with UTF-8 (for Windows compatibility)
@@ -1738,14 +1696,14 @@ console_handler.setFormatter(log_formatter)
 try:
 # Try to set UTF-8 encoding for console on Windows
 import sys
-if sys.platform == ‘win32’:
-sys.stdout.reconfigure(encoding=‘utf-8’, errors=‘replace’)
-sys.stderr.reconfigure(encoding=‘utf-8’, errors=‘replace’)
+if sys.platform == 'win32':
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 except:
 pass
 
 logging.basicConfig(level=logging.INFO, handlers=[file_handler, console_handler])
-logger = logging.getLogger(**name**)
+logger = logging.getLogger(__name__)
 
 # ======================================================================
 
@@ -1756,18 +1714,18 @@ logger = logging.getLogger(**name**)
 # Log Numba status
 
 if NUMBA_AVAILABLE:
-logger.info(“✅ Numba JIT optimization enabled (CPU)”)
-logger.info(“✅ Numba JIT functions compiled”)
+logger.info("✅ Numba JIT optimization enabled (CPU)")
+logger.info("✅ Numba JIT functions compiled")
 else:
-logger.warning(“⚠️  Numba not available. Install: pip install numba”)
+logger.warning("⚠️  Numba not available. Install: pip install numba")
 
 # Log XGBoost status
 
 if XGBOOST_AVAILABLE:
-logger.info(“✅ XGBoost available for retraining”)
-logger.info(“✅ Retrain engine classes loaded”)
+logger.info("✅ XGBoost available for retraining")
+logger.info("✅ Retrain engine classes loaded")
 else:
-logger.warning(“⚠️  XGBoost not available. Install: pip install xgboost scikit-learn”)
+logger.warning("⚠️  XGBoost not available. Install: pip install xgboost scikit-learn")
 
 # ======================================================================
 
@@ -1778,16 +1736,16 @@ logger.warning(“⚠️  XGBoost not available. Install: pip install xgboost sc
 # Log Numba status
 
 if NUMBA_AVAILABLE:
-logger.info(“✅ Numba JIT optimization enabled (CPU)”)
+logger.info("✅ Numba JIT optimization enabled (CPU)")
 else:
-logger.warning(“⚠️  Numba not available. Install: pip install numba”)
+logger.warning("⚠️  Numba not available. Install: pip install numba")
 
 # Log XGBoost status
 
 if XGBOOST_AVAILABLE:
-logger.info(“✅ XGBoost available for retraining”)
+logger.info("✅ XGBoost available for retraining")
 else:
-logger.warning(“⚠️  XGBoost not available. Install: pip install xgboost scikit-learn”)
+logger.warning("⚠️  XGBoost not available. Install: pip install xgboost scikit-learn")
 
 # ======================================================================
 
@@ -1797,7 +1755,6 @@ logger.warning(“⚠️  XGBoost not available. Install: pip install xgboost sc
 
 if TORCH_AVAILABLE:
 
-```
 # -----------------------------------------------------------------
 # MAMBA MODEL (V10 - 73.3%)
 # -----------------------------------------------------------------
@@ -1984,7 +1941,6 @@ class PPORiskValidator(nn.Module):
             dist = Categorical(action_probs)
             action = dist.sample()
         return action, action_probs, value
-```
 
 # ======================================================================
 
@@ -1993,9 +1949,8 @@ class PPORiskValidator(nn.Module):
 # ======================================================================
 
 class DataLogger:
-“”“Log signals and trades to CSV for retraining”””
+"""Log signals and trades to CSV for retraining"""
 
-```
 def __init__(self, data_dir=DATA_DIR):
     self.data_dir = data_dir
     self.trades_file = os.path.join(data_dir, 'trades_v12.csv')
@@ -2100,7 +2055,6 @@ def get_trades_df(self) -> pd.DataFrame:
     except:
         pass
     return pd.DataFrame()
-```
 
 # ======================================================================
 
@@ -2110,9 +2064,8 @@ def get_trades_df(self) -> pd.DataFrame:
 
 if XGBOOST_AVAILABLE:
 class RetrainEngine:
-“”“Auto-retrain Meta-Labeler from collected trade data”””
+"""Auto-retrain Meta-Labeler from collected trade data"""
 
-```
     def __init__(self, data_logger, models_dir='models', min_records=1000, 
                  min_accuracy=0.65, improvement_threshold=0.02):
         self.data_logger = data_logger
@@ -2305,18 +2258,16 @@ class RetrainScheduler:
                 time_module.sleep(self.check_interval)
 
 logger.info("✅ Retrain engine classes loaded")
-```
 
 else:
 class RetrainEngine:
-def **init**(self, *args, **kwargs):
+def __init__(self, *args, **kwargs):
 pass
 def get_status(self):
-return {‘error’: ‘XGBoost not installed’}
+return {'error': 'XGBoost not installed'}
 def manual_retrain(self):
-return {‘success’: False, ‘message’: ‘XGBoost not installed’}
+return {'success': False, 'message': 'XGBoost not installed'}
 
-```
 class RetrainScheduler:
     def __init__(self, *args, **kwargs):
         pass
@@ -2324,7 +2275,6 @@ class RetrainScheduler:
         pass
     def stop(self):
         pass
-```
 
 # ======================================================================
 
@@ -2333,9 +2283,8 @@ class RetrainScheduler:
 # ======================================================================
 
 class KarmaEngine:
-“”“Nhân Quả Báo Ứng - Karma System”””
+"""Nhân Quả Báo Ứng - Karma System"""
 
-```
 def __init__(self, data_dir=DATA_DIR):
     self.data_dir = data_dir
     self.karma_file = os.path.join(data_dir, 'karma_v12.json')
@@ -2453,7 +2402,6 @@ def should_cooldown(self, symbol: str) -> tuple:
         self._save()
     
     return False, ""
-```
 
 # ======================================================================
 
@@ -2462,9 +2410,8 @@ def should_cooldown(self, symbol: str) -> tuple:
 # ======================================================================
 
 class PPORiskEngine:
-“”“PPO Risk Engine - Validates signals with Trung Đạo”””
+"""PPO Risk Engine - Validates signals with Trung Đạo"""
 
-```
 def __init__(self, models_dir=MODELS_DIR):
     self.models_dir = models_dir
     self.model = None
@@ -2569,7 +2516,6 @@ def validate_signal(self, signal_data: dict) -> dict:
         'lot_multiplier': 1.0,
         'reason': 'Risk OK'
     }
-```
 
 # ======================================================================
 
@@ -2578,9 +2524,8 @@ def validate_signal(self, signal_data: dict) -> dict:
 # ======================================================================
 
 class EnsembleEngine:
-“”“Time-MoE Ensemble: Mamba + LSTM + Transformer với Meta-Labeler”””
+"""Time-MoE Ensemble: Mamba + LSTM + Transformer với Meta-Labeler"""
 
-```
 def __init__(self, models_dir: str = MODELS_DIR):
     self.models_dir = models_dir
     self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') if TORCH_AVAILABLE else None
@@ -2883,7 +2828,6 @@ def _rule_based_meta(self, data: Dict, ensemble: Dict) -> float:
         prob -= 0.20
     
     return max(0, min(1, prob))
-```
 
 # ======================================================================
 
@@ -2898,10 +2842,9 @@ def _rule_based_meta(self, data: Dict, ensemble: Dict) -> float:
 # ======================================================================
 
 def check_tu_hop_nhat(data: dict) -> tuple:
-“””
+"""
 V6 TỨ HỢP NHẤT - TẤT CẢ PHẢI ĐỒNG THUẬN MỚI VÀO LỆNH
 
-```
 THIÊN (D1) = Trời  -> main_trend
 ĐỊA (H4)   = Đất   -> rsi_h4, adx_h4
 NHÂN (H1)  = Người -> rsi_h1
@@ -2958,7 +2901,6 @@ if main_trend == 1 and rsi_m15 > 55:
 
 reason = f"HOLD | {', '.join(reasons) if reasons else 'No setup'}"
 return 0, reason
-```
 
 # ======================================================================
 
@@ -2967,7 +2909,7 @@ return 0, reason
 # ======================================================================
 
 class SignalRequest(BaseModel):
-symbol: str = “EURUSD”
+symbol: str = "EURUSD"
 main_trend: int = 0
 rsi_d1: float = 50
 rsi_h4: float = 50
@@ -2987,8 +2929,8 @@ consecutive_losses: int = 0
 sila_streak: int = 0
 
 class TradeRequest(BaseModel):
-symbol: str = “EURUSD”
-type: str = “BUY”
+symbol: str = "EURUSD"
+type: str = "BUY"
 lot: float = 0.01
 profit_pips: float = 0
 profit_money: float = 0
@@ -3008,14 +2950,14 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-“”“Lifespan context manager - startup and shutdown”””
+"""Lifespan context manager - startup and shutdown"""
 global ensemble_engine
 # Startup
 ensemble_engine = EnsembleEngine(MODELS_DIR)
-logger.info(f”[STARTUP] Bodhi Genesis V12 ready on port {DEFAULT_PORT}”)
+logger.info(f"[STARTUP] Bodhi Genesis V12 ready on port {DEFAULT_PORT}")
 yield
 # Shutdown
-logger.info(”[SHUTDOWN] Server stopping…”)
+logger.info("[SHUTDOWN] Server stopping…")
 
 # ======================================================================
 
@@ -3024,18 +2966,18 @@ logger.info(”[SHUTDOWN] Server stopping…”)
 # ======================================================================
 
 app = FastAPI(
-title=”[BODHI] Bodhi Genesis V12 - Complete Ensemble”,
-description=“Mamba (73.3%) + LSTM (74.2%) + Transformer (66.9%) + Meta-Labeler + PPO Risk”,
+title="[BODHI] Bodhi Genesis V12 - Complete Ensemble",
+description="Mamba (73.3%) + LSTM (74.2%) + Transformer (66.9%) + Meta-Labeler + PPO Risk",
 version=VERSION,
 lifespan=lifespan
 )
 
 app.add_middleware(
 CORSMiddleware,
-allow_origins=[”*”],
+allow_origins=["*"],
 allow_credentials=True,
-allow_methods=[”*”],
-allow_headers=[”*”],
+allow_methods=["*"],
+allow_headers=["*"],
 )
 
 # Global instances
@@ -3050,10 +2992,10 @@ ensemble_engine = None
 
 try:
 shadow_manager = ShadowPortfolioManager()
-logger.info(f”[SHADOW] Shadow Portfolios initialized (CSV mode)”)
-logger.info(f”[SHADOW] Active portfolios: {list(shadow_manager.portfolios.keys())}”)
+logger.info(f"[SHADOW] Shadow Portfolios initialized (CSV mode)")
+logger.info(f"[SHADOW] Active portfolios: {list(shadow_manager.portfolios.keys())}")
 except Exception as e:
-logger.error(f”[SHADOW] Initialization failed: {e}”)
+logger.error(f"[SHADOW] Initialization failed: {e}")
 shadow_manager = None
 
 # Cache last signal per symbol
@@ -3066,28 +3008,28 @@ last_signals = {}
 
 # ======================================================================
 
-@app.get(”/”)
+@app.get("/")
 async def root():
 return {
-“name”: “[BODHI] Bodhi Genesis V12 - Complete Ensemble”,
-“version”: VERSION,
-“philosophy”: “TỨ HỢP NHẤT - Thien Dia Nhan Hop Nhat”,
-“pipeline”: “V6 -> Ensemble -> Meta-Labeler -> PPO -> Trade -> Karma”,
-“entry_tf”: “M15”,
-“models”: {
-“mamba”: {“loaded”: ensemble_engine.mamba_loaded if ensemble_engine else False, “accuracy”: “73.3%”, “weight”: “35%”},
-“lstm”: {“loaded”: ensemble_engine.lstm_loaded if ensemble_engine else False, “accuracy”: “74.2%”, “weight”: “40%”},
-“transformer”: {“loaded”: ensemble_engine.transformer_loaded if ensemble_engine else False, “accuracy”: “66.9%”, “weight”: “25%”},
-“meta_labeler”: {“loaded”: ensemble_engine.meta_loaded if ensemble_engine else False},
-“ppo_risk”: {“loaded”: ppo_engine.model_loaded if ppo_engine else False}
+"name": "[BODHI] Bodhi Genesis V12 - Complete Ensemble",
+"version": VERSION,
+"philosophy": "TỨ HỢP NHẤT - Thien Dia Nhan Hop Nhat",
+"pipeline": "V6 -> Ensemble -> Meta-Labeler -> PPO -> Trade -> Karma",
+"entry_tf": "M15",
+"models": {
+"mamba": {"loaded": ensemble_engine.mamba_loaded if ensemble_engine else False, "accuracy": "73.3%", "weight": "35%"},
+"lstm": {"loaded": ensemble_engine.lstm_loaded if ensemble_engine else False, "accuracy": "74.2%", "weight": "40%"},
+"transformer": {"loaded": ensemble_engine.transformer_loaded if ensemble_engine else False, "accuracy": "66.9%", "weight": "25%"},
+"meta_labeler": {"loaded": ensemble_engine.meta_loaded if ensemble_engine else False},
+"ppo_risk": {"loaded": ppo_engine.model_loaded if ppo_engine else False}
 },
-“sessions”: {s: f”{v[‘start’]}:00-{v[‘end’]}:00” for s, v in SYMBOL_SESSIONS.items()},
-“trade_records”: data_logger.get_trade_count(),
-“status”: “online”
+"sessions": {s: f"{v['start']}:00-{v['end']}:00" for s, v in SYMBOL_SESSIONS.items()},
+"trade_records": data_logger.get_trade_count(),
+"status": "online"
 }
 
-@app.get(”/health”)
-@app.get(”/api/health”)
+@app.get("/health")
+@app.get("/api/health")
 async def health():
 models_loaded = sum([
 ensemble_engine.mamba_loaded if ensemble_engine else False,
@@ -3095,25 +3037,24 @@ ensemble_engine.lstm_loaded if ensemble_engine else False,
 ensemble_engine.transformer_loaded if ensemble_engine else False
 ])
 return {
-“status”: “ok”,
-“version”: VERSION,
-“models_loaded”: f”{models_loaded}/3”,
-“meta_loaded”: ensemble_engine.meta_loaded if ensemble_engine else False,
-“ppo_loaded”: ppo_engine.model_loaded if ppo_engine else False,
-“timestamp”: datetime.now().isoformat()
+"status": "ok",
+"version": VERSION,
+"models_loaded": f"{models_loaded}/3",
+"meta_loaded": ensemble_engine.meta_loaded if ensemble_engine else False,
+"ppo_loaded": ppo_engine.model_loaded if ppo_engine else False,
+"timestamp": datetime.now().isoformat()
 }
 
-@app.api_route(”/api/heartbeat”, methods=[“GET”, “POST”])
-@app.api_route(”/heartbeat”, methods=[“GET”, “POST”])
+@app.api_route("/api/heartbeat", methods=["GET", "POST"])
+@app.api_route("/heartbeat", methods=["GET", "POST"])
 async def heartbeat(request: Request):
 data = {}
-if request.method == “POST”:
+if request.method == "POST":
 try:
 data = await request.json()
 except:
 pass
 
-```
 raw_symbol = data.get('symbol', 'EURUSD')
 symbol = normalize_symbol(raw_symbol)
 
@@ -3141,15 +3082,13 @@ return {
     "v6_rules": "RSI<45=BUY, RSI>55=SELL, ADX>20",
     "timestamp": datetime.now().isoformat()
 }
-```
 
-@app.api_route(”/api/signal”, methods=[“GET”, “POST”])
-@app.api_route(”/signal”, methods=[“GET”, “POST”])
+@app.api_route("/api/signal", methods=["GET", "POST"])
+@app.api_route("/signal", methods=["GET", "POST"])
 async def get_signal(request: Request):
-“””
+"""
 V13 SIGNAL - Full Pipeline with Phase 2 Advanced Features
 
-```
 Pipeline:
   1. Check cooldown (V6: 3 loss = cooldown)
   2. Check session (symbol-specific)
@@ -3707,17 +3646,15 @@ else:
     }
 
 return main_response
-```
 
-@app.post(”/api/trade”)
-@app.post(”/trade”)
+@app.post("/api/trade")
+@app.post("/trade")
 async def log_trade(request: Request):
-“”“Log trade result and update karma”””
+"""Log trade result and update karma"""
 data = await request.json()
 if not data:
-raise HTTPException(status_code=400, detail=“No data”)
+raise HTTPException(status_code=400, detail="No data")
 
-```
 symbol = normalize_symbol(data.get('symbol', 'EURUSD'))
 
 # Normalize pips
@@ -3776,48 +3713,46 @@ return {
     "pips_normalized": normalized_pips != original_pips,
     "timestamp": datetime.now().isoformat()
 }
-```
 
-@app.get(”/api/karma/{symbol}”)
-@app.get(”/karma/{symbol}”)
+@app.get("/api/karma/{symbol}")
+@app.get("/karma/{symbol}")
 async def get_karma(symbol: str):
 s = normalize_symbol(symbol)
-return {“symbol”: s, “karma”: karma_engine.get_karma(s)}
+return {"symbol": s, "karma": karma_engine.get_karma(s)}
 
-@app.get(”/api/karma”)
-@app.get(”/karma”)
+@app.get("/api/karma")
+@app.get("/karma")
 async def get_all_karma():
-return {“karma”: karma_engine.get_all_karma()}
+return {"karma": karma_engine.get_all_karma()}
 
-@app.get(”/api/retrain/status”)
-@app.get(”/retrain/status”)
+@app.get("/api/retrain/status")
+@app.get("/retrain/status")
 async def retrain_status():
 return retrain_engine.get_status()
 
-@app.post(”/api/retrain/trigger”)
-@app.post(”/retrain/trigger”)
+@app.post("/api/retrain/trigger")
+@app.post("/retrain/trigger")
 async def trigger_retrain():
 success = retrain_engine.retrain()
 return {
-“triggered”: True,
-“success”: success,
-“status”: retrain_engine.get_status()
+"triggered": True,
+"success": success,
+"status": retrain_engine.get_status()
 }
 
-@app.post(”/api/risk”)
+@app.post("/api/risk")
 async def check_risk(request: Request):
-“”“Standalone risk check endpoint”””
-data = await request.json() if request.method == “POST” else {}
-result = ppo_engine.validate_signal(data) if ppo_engine else {‘approved’: True}
-return {**result, “timestamp”: datetime.now().isoformat()}
+"""Standalone risk check endpoint"""
+data = await request.json() if request.method == "POST" else {}
+result = ppo_engine.validate_signal(data) if ppo_engine else {'approved': True}
+return {**result, "timestamp": datetime.now().isoformat()}
 
-@app.post(”/api/pipeline”)
+@app.post("/api/pipeline")
 async def full_pipeline(request: Request):
-“”“Full pipeline endpoint - one call does everything”””
+"""Full pipeline endpoint - one call does everything"""
 data = await request.json()
-symbol = normalize_symbol(data.get(‘symbol’, ‘EURUSD’))
+symbol = normalize_symbol(data.get('symbol', 'EURUSD'))
 
-```
 # Get signal
 signal_result = await get_signal(request)
 
@@ -3849,65 +3784,63 @@ return {
     "karma": karma,
     "timestamp": datetime.now().isoformat()
 }
-```
 
-@app.get(”/api/phase2”)
-@app.get(”/phase2”)
+@app.get("/api/phase2")
+@app.get("/phase2")
 async def phase2_status():
-“”“Get Phase 2 advanced features status”””
+"""Get Phase 2 advanced features status"""
 return {
-“phase”: 2,
-“name”: “Advanced Features”,
-“status”: “ACTIVE”,
-“features”: {
-“kalman_filter”: {
-“enabled”: PHASE2_CONFIG[‘kalman_enabled’],
-“description”: “Denoise RSI/ADX signals using Kalman filtering”,
-“config”: {
-“process_variance”: PHASE2_CONFIG[‘kalman_process_variance’],
-“measurement_variance”: PHASE2_CONFIG[‘kalman_measurement_variance’]
+"phase": 2,
+"name": "Advanced Features",
+"status": "ACTIVE",
+"features": {
+"kalman_filter": {
+"enabled": PHASE2_CONFIG['kalman_enabled'],
+"description": "Denoise RSI/ADX signals using Kalman filtering",
+"config": {
+"process_variance": PHASE2_CONFIG['kalman_process_variance'],
+"measurement_variance": PHASE2_CONFIG['kalman_measurement_variance']
 },
-“benefit”: “Reduces false signals from market noise”
+"benefit": "Reduces false signals from market noise"
 },
-“monte_carlo”: {
-“enabled”: PHASE2_CONFIG[‘monte_carlo_enabled’],
-“description”: “Risk simulation for DYNAMIC LOT SIZING (no filtering)”,
-“config”: {
-“simulations”: PHASE2_CONFIG[‘monte_carlo_simulations’],
-“mode”: “LOT_ADJUSTMENT_ONLY”
+"monte_carlo": {
+"enabled": PHASE2_CONFIG['monte_carlo_enabled'],
+"description": "Risk simulation for DYNAMIC LOT SIZING (no filtering)",
+"config": {
+"simulations": PHASE2_CONFIG['monte_carlo_simulations'],
+"mode": "LOT_ADJUSTMENT_ONLY"
 },
-“lot_adjustments”: {
-“STRONG_ENTRY”: “lot x 1.25 (high win prob)”,
-“NORMAL_ENTRY”: “lot x 1.0 (default)”,
-“WEAK_ENTRY”: “lot x 0.75 (lower confidence)”,
-“AVOID”: “lot x 0.5 (still trades, smaller size)”
+"lot_adjustments": {
+"STRONG_ENTRY": "lot x 1.25 (high win prob)",
+"NORMAL_ENTRY": "lot x 1.0 (default)",
+"WEAK_ENTRY": "lot x 0.75 (lower confidence)",
+"AVOID": "lot x 0.5 (still trades, smaller size)"
 },
-“benefit”: “Dynamic lot sizing based on risk simulation - NO SIGNAL FILTERING”
+"benefit": "Dynamic lot sizing based on risk simulation - NO SIGNAL FILTERING"
 },
-“polynomial_features”: {
-“enabled”: PHASE2_CONFIG[‘polynomial_enabled’],
-“description”: “Feature engineering: RSI^2, RSI*ADX interactions”,
-“config”: {
-“degree”: PHASE2_CONFIG[‘polynomial_degree’],
-“interactions”: PHASE2_CONFIG[‘polynomial_interactions’]
+"polynomial_features": {
+"enabled": PHASE2_CONFIG['polynomial_enabled'],
+"description": "Feature engineering: RSI^2, RSI*ADX interactions",
+"config": {
+"degree": PHASE2_CONFIG['polynomial_degree'],
+"interactions": PHASE2_CONFIG['polynomial_interactions']
 },
-“benefit”: “Captures non-linear relationships in data”
+"benefit": "Captures non-linear relationships in data"
 }
 },
-“pipeline”: “Signal -> Kalman -> V6 -> Poly -> Ensemble -> Meta(FILTER) -> MC(LOT) -> PPO -> Trade”,
-“filter_points”: {
-“meta_labeler”: “ONLY filter point - prob < 50% = FILTERED”,
-“monte_carlo”: “NO filter - only adjusts lot size”
+"pipeline": "Signal -> Kalman -> V6 -> Poly -> Ensemble -> Meta(FILTER) -> MC(LOT) -> PPO -> Trade",
+"filter_points": {
+"meta_labeler": "ONLY filter point - prob < 50% = FILTERED",
+"monte_carlo": "NO filter - only adjusts lot size"
 },
-“timestamp”: datetime.now().isoformat()
+"timestamp": datetime.now().isoformat()
 }
 
-@app.post(”/api/phase2/config”)
+@app.post("/api/phase2/config")
 async def update_phase2_config(request: Request):
-“”“Update Phase 2 configuration”””
+"""Update Phase 2 configuration"""
 data = await request.json()
 
-```
 # Update Kalman
 if 'kalman_enabled' in data:
     PHASE2_CONFIG['kalman_enabled'] = bool(data['kalman_enabled'])
@@ -3930,45 +3863,44 @@ return {
     "config": PHASE2_CONFIG,
     "timestamp": datetime.now().isoformat()
 }
-```
 
-@app.get(”/dashboard”)
-@app.get(”/api/dashboard”)
+@app.get("/dashboard")
+@app.get("/api/dashboard")
 async def dashboard():
 return {
-“name”: “[BODHI] Bodhi Genesis V13 - Phase 2 Advanced”,
-“version”: VERSION,
-“philosophy”: “TU HOP NHAT + Kalman + Monte Carlo + Polynomial”,
-“pipeline”: “Kalman -> V6 -> Poly -> Ensemble -> Meta -> MC -> PPO -> Trade -> Karma”,
-“entry_tf”: “M15”,
-“v6_rules”: {
-“buy”: f”RSI < {V6_CONFIG[‘rsi_buy_max’]}”,
-“sell”: f”RSI > {V6_CONFIG[‘rsi_sell_min’]}”,
-“trend”: f”ADX > {V6_CONFIG[‘adx_min’]}”,
-“sessions”: {sym: f”{s[‘start’]}:00-{s[‘end’]}:00” for sym, s in SYMBOL_SESSIONS.items()},
-“cooldown”: f”{V6_CONFIG[‘max_consecutive_losses’]} losses = {V6_CONFIG[‘cooldown_hours’]}h cooldown”
+"name": "[BODHI] Bodhi Genesis V13 - Phase 2 Advanced",
+"version": VERSION,
+"philosophy": "TU HOP NHAT + Kalman + Monte Carlo + Polynomial",
+"pipeline": "Kalman -> V6 -> Poly -> Ensemble -> Meta -> MC -> PPO -> Trade -> Karma",
+"entry_tf": "M15",
+"v6_rules": {
+"buy": f"RSI < {V6_CONFIG['rsi_buy_max']}",
+"sell": f"RSI > {V6_CONFIG['rsi_sell_min']}",
+"trend": f"ADX > {V6_CONFIG['adx_min']}",
+"sessions": {sym: f"{s['start']}:00-{s['end']}:00" for sym, s in SYMBOL_SESSIONS.items()},
+"cooldown": f"{V6_CONFIG['max_consecutive_losses']} losses = {V6_CONFIG['cooldown_hours']}h cooldown"
 },
-“phase1_ensemble”: {
-“mamba”: {“loaded”: ensemble_engine.mamba_loaded if ensemble_engine else False, “accuracy”: “73.3%”, “weight”: “35%”},
-“lstm”: {“loaded”: ensemble_engine.lstm_loaded if ensemble_engine else False, “accuracy”: “74.2%”, “weight”: “40%”},
-“transformer”: {“loaded”: ensemble_engine.transformer_loaded if ensemble_engine else False, “accuracy”: “66.9%”, “weight”: “25%”},
-“meta_labeler”: {“loaded”: ensemble_engine.meta_loaded if ensemble_engine else False},
+"phase1_ensemble": {
+"mamba": {"loaded": ensemble_engine.mamba_loaded if ensemble_engine else False, "accuracy": "73.3%", "weight": "35%"},
+"lstm": {"loaded": ensemble_engine.lstm_loaded if ensemble_engine else False, "accuracy": "74.2%", "weight": "40%"},
+"transformer": {"loaded": ensemble_engine.transformer_loaded if ensemble_engine else False, "accuracy": "66.9%", "weight": "25%"},
+"meta_labeler": {"loaded": ensemble_engine.meta_loaded if ensemble_engine else False},
 },
-“phase2_advanced”: {
-“kalman_filter”: PHASE2_CONFIG[‘kalman_enabled’],
-“monte_carlo”: PHASE2_CONFIG[‘monte_carlo_enabled’],
-“polynomial_features”: PHASE2_CONFIG[‘polynomial_enabled’],
+"phase2_advanced": {
+"kalman_filter": PHASE2_CONFIG['kalman_enabled'],
+"monte_carlo": PHASE2_CONFIG['monte_carlo_enabled'],
+"polynomial_features": PHASE2_CONFIG['polynomial_enabled'],
 },
-“meta_thresholds”: {
-“strong”: f”{ENSEMBLE_CONFIG[‘meta_strong_threshold’]:.0%} -> lot 1.0x”,
-“moderate”: f”{ENSEMBLE_CONFIG[‘meta_moderate_threshold’]:.0%} -> lot 0.75x”,
-“minimum”: f”{ENSEMBLE_CONFIG[‘meta_minimum_threshold’]:.0%} -> lot 0.5x”
+"meta_thresholds": {
+"strong": f"{ENSEMBLE_CONFIG['meta_strong_threshold']:.0%} -> lot 1.0x",
+"moderate": f"{ENSEMBLE_CONFIG['meta_moderate_threshold']:.0%} -> lot 0.75x",
+"minimum": f"{ENSEMBLE_CONFIG['meta_minimum_threshold']:.0%} -> lot 0.5x"
 },
-“ppo_loaded”: ppo_engine.model_loaded if ppo_engine else False,
-“trade_records”: data_logger.get_trade_count(),
-“karma”: karma_engine.get_all_karma(),
-“retrain”: retrain_engine.get_status(),
-“timestamp”: datetime.now().isoformat()
+"ppo_loaded": ppo_engine.model_loaded if ppo_engine else False,
+"trade_records": data_logger.get_trade_count(),
+"karma": karma_engine.get_all_karma(),
+"retrain": retrain_engine.get_status(),
+"timestamp": datetime.now().isoformat()
 }
 
 # ======================================================================
@@ -3977,11 +3909,10 @@ return {
 
 # ======================================================================
 
-@app.get(”/api/shadow/status”)
+@app.get("/api/shadow/status")
 async def get_shadow_status():
-“”“Get shadow portfolios status”””
+"""Get shadow portfolios status"""
 
-```
 if not shadow_manager:
     return {"success": False, "error": "Shadow manager not initialized"}
 
@@ -4001,13 +3932,11 @@ return {
     'market_sentiment': sentiment,
     'timestamp': datetime.now().isoformat()
 }
-```
 
-@app.get(”/api/shadow/performance”)
+@app.get("/api/shadow/performance")
 async def get_shadow_performance(days: int = 7):
-“”“Compare performance of all portfolios”””
+"""Compare performance of all portfolios"""
 
-```
 if not shadow_manager:
     return {"success": False, "error": "Shadow manager not initialized"}
 
@@ -4026,13 +3955,11 @@ try:
 except Exception as e:
     logger.error(f"[SHADOW] Performance error: {e}")
     return {"success": False, "error": str(e)}
-```
 
-@app.post(”/api/shadow/promote/{shadow_name}”)
+@app.post("/api/shadow/promote/{shadow_name}")
 async def promote_shadow(shadow_name: str):
-“”“Promote a shadow portfolio to live”””
+"""Promote a shadow portfolio to live"""
 
-```
 if not shadow_manager:
     return {"success": False, "error": "Shadow manager not initialized"}
 
@@ -4051,13 +3978,11 @@ except ValueError as e:
 except Exception as e:
     logger.error(f"[SHADOW] Promotion error: {e}")
     return {"success": False, "error": str(e)}
-```
 
-@app.patch(”/api/shadow/traffic/{portfolio_name}”)
+@app.patch("/api/shadow/traffic/{portfolio_name}")
 async def update_shadow_traffic(portfolio_name: str, traffic_pct: float):
-“”“Update traffic percentage for a shadow”””
+"""Update traffic percentage for a shadow"""
 
-```
 if not shadow_manager:
     return {"success": False, "error": "Shadow manager not initialized"}
 
@@ -4079,13 +4004,11 @@ except ValueError as e:
 except Exception as e:
     logger.error(f"[SHADOW] Traffic error: {e}")
     return {"success": False, "error": str(e)}
-```
 
-@app.get(”/api/sentiment”)
+@app.get("/api/sentiment")
 async def get_market_sentiment():
-“”“Get current market sentiment from VADER worker”””
+"""Get current market sentiment from VADER worker"""
 
-```
 if not shadow_manager:
     return {"success": False, "error": "Shadow manager not initialized"}
 
@@ -4096,7 +4019,6 @@ return {
     'sentiment': sentiment,
     'timestamp': datetime.now().isoformat()
 }
-```
 
 # ======================================================================
 
@@ -4105,13 +4027,13 @@ return {
 # ======================================================================
 
 def scheduled_retrain():
-“”“Scheduled retrain job”””
-logger.info(”[SCHED] Scheduled retrain check…”)
+"""Scheduled retrain job"""
+logger.info("[SCHED] Scheduled retrain check…")
 retrain_engine.retrain()
 
 def run_scheduler():
-“”“Run scheduler in background”””
-schedule.every().sunday.at(“06:00”).do(scheduled_retrain)
+"""Run scheduler in background"""
+schedule.every().sunday.at("06:00").do(scheduled_retrain)
 while True:
 schedule.run_pending()
 time_module.sleep(60)
@@ -4125,7 +4047,6 @@ time_module.sleep(60)
 def main():
 global ensemble_engine, ppo_engine
 
-```
 import argparse
 parser = argparse.ArgumentParser(description='Bodhi Genesis V13 - Phase 2 Advanced')
 parser.add_argument('--port', type=int, default=DEFAULT_PORT, help='Server port')
@@ -4137,7 +4058,6 @@ print("[BODHI] BODHI GENESIS SERVER V13 - PHASE 2 ADVANCED")
 print("   Ensemble + Kalman Filter + Monte Carlo + Polynomial Features")
 print("=" * 70)
 print("""
-```
 
 PHASE 1 - ENSEMBLE MODELS:
 +—————–+–––––+––––+
@@ -4162,9 +4082,8 @@ Signal -> Kalman -> V6 -> Poly Features -> Ensemble
 -> Meta-Labeler -> Monte Carlo -> PPO -> Trade -> Karma
 
 BACKWARD COMPATIBLE with EA V4.13+
-“””)
+""")
 
-```
 # Initialize engines
 ensemble_engine = EnsembleEngine(MODELS_DIR)
 ppo_engine = PPORiskEngine(MODELS_DIR)
@@ -4206,7 +4125,6 @@ print(f"\n[*] Starting FastAPI + Uvicorn...")
 print("=" * 70)
 
 uvicorn.run(app, host=args.host, port=args.port)
-```
 
-if **name** == ‘**main**’:
+if __name__ == "__main__":
 main()
