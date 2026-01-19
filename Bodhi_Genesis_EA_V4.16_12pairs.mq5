@@ -231,6 +231,21 @@ int h_ADX_M5, h_ADX_H1, h_ADX_H4;
 int h_ATR;
 int h_EMA_D1;  // EMA 50 D1 for TEMA calculation
 
+// Indicator cache (reduce CopyBuffer calls)
+datetime LastIndicatorCacheTime = 0;
+double Cache_RSI_M5 = 50;
+double Cache_RSI_M15 = 50;
+double Cache_RSI_H1 = 50;
+double Cache_RSI_H4 = 50;
+double Cache_ADX_M5 = 0;
+double Cache_ADX_H1 = 0;
+double Cache_ADX_H4 = 0;
+double Cache_ATR_H4 = 0;
+
+// TEMA D1 cache (expensive calculation)
+datetime LastTemaBarTime = 0;
+double CachedTemaD1 = 0;
+
 // Spread tracking
 double SpreadHistory[];
 int SpreadIndex = 0;
@@ -1405,11 +1420,8 @@ bool IsSingularity(int direction)
 //+------------------------------------------------------------------+
 double GetATR_Value()
 {
-   double atr[];
-   ArraySetAsSeries(atr, true);
-   if(CopyBuffer(h_ATR, 0, 0, 1, atr) > 0)
-      return atr[0];
-   return 0;
+   RefreshIndicatorCache();
+   return Cache_ATR_H4;
 }
 
 double GetDynamicSL()
@@ -1920,6 +1932,12 @@ bool IsSpreadOK()
 //+------------------------------------------------------------------+
 double GetTEMA_D1()
 {
+   datetime barTime = iTime(_Symbol, PERIOD_D1, 0);
+   if(barTime == 0) return 0;
+   
+   if(barTime == LastTemaBarTime && CachedTemaD1 != 0)
+      return CachedTemaD1;
+   
    // Get enough D1 close prices to calculate triple EMA
    double close[];
    ArraySetAsSeries(close, true);
@@ -1943,8 +1961,9 @@ double GetTEMA_D1()
    }
    
    // TEMA = 3*EMA1 - 3*EMA2 + EMA3
-   double tema = 3 * ema1 - 3 * ema2 + ema3;
-   return tema;
+   CachedTemaD1 = 3 * ema1 - 3 * ema2 + ema3;
+   LastTemaBarTime = barTime;
+   return CachedTemaD1;
 }
 
 //+------------------------------------------------------------------+
@@ -2497,19 +2516,65 @@ void ExecuteTrade(int signal)
 //+------------------------------------------------------------------+
 //| Helper Functions                                                   |
 //+------------------------------------------------------------------+
-double GetRSI(int handle, int shift = 0)
+double ReadIndicatorValue(int handle, double fallback)
 {
    double buf[];
    ArraySetAsSeries(buf, true);
-   if(CopyBuffer(handle, 0, shift, 1, buf) > 0) return buf[0];
+   if(handle != INVALID_HANDLE && CopyBuffer(handle, 0, 0, 1, buf) > 0)
+      return buf[0];
+   return fallback;
+}
+
+void RefreshIndicatorCache()
+{
+   datetime now = TimeCurrent();
+   if(now == LastIndicatorCacheTime) return;
+   LastIndicatorCacheTime = now;
+   
+   Cache_RSI_M5 = ReadIndicatorValue(h_RSI_M5, Cache_RSI_M5);
+   Cache_RSI_M15 = ReadIndicatorValue(h_RSI_M15, Cache_RSI_M15);
+   Cache_RSI_H1 = ReadIndicatorValue(h_RSI_H1, Cache_RSI_H1);
+   Cache_RSI_H4 = ReadIndicatorValue(h_RSI_H4, Cache_RSI_H4);
+   
+   Cache_ADX_M5 = ReadIndicatorValue(h_ADX_M5, Cache_ADX_M5);
+   Cache_ADX_H1 = ReadIndicatorValue(h_ADX_H1, Cache_ADX_H1);
+   Cache_ADX_H4 = ReadIndicatorValue(h_ADX_H4, Cache_ADX_H4);
+   
+   Cache_ATR_H4 = ReadIndicatorValue(h_ATR, Cache_ATR_H4);
+}
+
+double GetRSI(int handle, int shift = 0)
+{
+   if(shift != 0)
+   {
+      double buf[];
+      ArraySetAsSeries(buf, true);
+      if(CopyBuffer(handle, 0, shift, 1, buf) > 0) return buf[0];
+      return 50;
+   }
+   
+   RefreshIndicatorCache();
+   if(handle == h_RSI_M5) return Cache_RSI_M5;
+   if(handle == h_RSI_M15) return Cache_RSI_M15;
+   if(handle == h_RSI_H1) return Cache_RSI_H1;
+   if(handle == h_RSI_H4) return Cache_RSI_H4;
    return 50;
 }
 
 double GetADX(int handle, int shift = 0)
 {
-   double buf[];
-   ArraySetAsSeries(buf, true);
-   if(CopyBuffer(handle, 0, shift, 1, buf) > 0) return buf[0];
+   if(shift != 0)
+   {
+      double buf[];
+      ArraySetAsSeries(buf, true);
+      if(CopyBuffer(handle, 0, shift, 1, buf) > 0) return buf[0];
+      return 0;
+   }
+   
+   RefreshIndicatorCache();
+   if(handle == h_ADX_M5) return Cache_ADX_M5;
+   if(handle == h_ADX_H1) return Cache_ADX_H1;
+   if(handle == h_ADX_H4) return Cache_ADX_H4;
    return 0;
 }
 
