@@ -231,9 +231,7 @@ int h_ADX_M5, h_ADX_H1, h_ADX_H4;
 int h_ATR;
 int h_EMA_D1;  // EMA 50 D1 for TEMA calculation
 
-// Spread tracking
-double SpreadHistory[];
-int SpreadIndex = 0;
+// Spread tracking (V4.16: Removed unused SpreadHistory array - use EMA instead)
 double AverageSpread = 0;
 double CurrentSpread = 0;
 
@@ -346,6 +344,55 @@ int CurrentMaxTrades = 3;
 double CurrentSL_ATR_Mult = 1.5;
 double CurrentTP_ATR_Mult = 2.0;
 
+// V4.16: Cached indicator values (performance optimization)
+static double Cached_RSI_M5 = 50;
+static double Cached_RSI_M15 = 50;
+static double Cached_RSI_H1 = 50;
+static double Cached_RSI_H4 = 50;
+static double Cached_ADX_M5 = 0;
+static double Cached_ADX_H1 = 0;
+static double Cached_ADX_H4 = 0;
+static double Cached_TEMA_D1 = 0;
+static int Cached_MainTrend = 0;
+static datetime LastIndicatorUpdate = 0;
+const int INDICATOR_CACHE_SECONDS = 5;  // Update every 5 seconds
+
+// V4.16: Update cached indicator values (call once per tick or less)
+void UpdateCachedIndicators()
+{
+   if(TimeCurrent() - LastIndicatorUpdate < INDICATOR_CACHE_SECONDS && LastIndicatorUpdate > 0)
+      return;
+   
+   LastIndicatorUpdate = TimeCurrent();
+   
+   // Update RSI values
+   Cached_RSI_M5 = GetRSI(h_RSI_M5);
+   Cached_RSI_M15 = GetRSI(h_RSI_M15);
+   Cached_RSI_H1 = GetRSI(h_RSI_H1);
+   Cached_RSI_H4 = GetRSI(h_RSI_H4);
+   
+   // Update ADX values
+   Cached_ADX_M5 = GetADX(h_ADX_M5);
+   Cached_ADX_H1 = GetADX(h_ADX_H1);
+   Cached_ADX_H4 = GetADX(h_ADX_H4);
+   
+   // Update TEMA D1 (heavy calculation)
+   Cached_TEMA_D1 = GetTEMA_D1();
+   
+   // Update main trend
+   if(Cached_TEMA_D1 > 0)
+   {
+      double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      double distance = (currentPrice - Cached_TEMA_D1) / Cached_TEMA_D1 * 100;
+      if(distance > 0.1)
+         Cached_MainTrend = 1;
+      else if(distance < -0.1)
+         Cached_MainTrend = -1;
+      else
+         Cached_MainTrend = 0;
+   }
+}
+
 string GetTrendStrength()
 {
    /*
@@ -353,13 +400,14 @@ string GetTrendStrength()
     * - STRONG: ADX >= 40 + TEMA distance >= 0.5% + RSI extreme
     * - MODERATE: ADX 25-40 + TEMA distance 0.1-0.5%
     * - WEAK: ADX < 25 OR TEMA distance < 0.1%
+    * V4.16: Uses cached indicator values for performance
     */
    
-   double adx_h4 = GetADX(h_ADX_H4);
-   double rsi_h4 = GetRSI(h_RSI_H4);
+   double adx_h4 = Cached_ADX_H4;
+   double rsi_h4 = Cached_RSI_H4;
    
-   // Get TEMA distance
-   double tema_d1 = GetTEMA_D1();
+   // Get TEMA distance (using cached value)
+   double tema_d1 = Cached_TEMA_D1;
    double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double tema_dist_pct = 0;
    if(tema_d1 > 0)
@@ -1255,7 +1303,7 @@ void LogTradeToServer(double profit, double profitPips, string tradeType, double
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   Print("🕉️ BODHI GENESIS V4.13 + AUDIT Initializing...");
+   Print("🕉️ BODHI GENESIS V4.16 + AUDIT Initializing...");
    
    trade.SetExpertMagicNumber(MagicNumber);
    trade.SetDeviationInPoints(10);
@@ -1267,8 +1315,7 @@ int OnInit()
       return INIT_FAILED;
    }
    
-   ArrayResize(SpreadHistory, 100);
-   ArrayInitialize(SpreadHistory, 0);
+   // V4.16: Removed SpreadHistory array initialization (using EMA for average spread)
    
    ResetDaily();
    ResetKarma();
@@ -1292,9 +1339,9 @@ int OnInit()
       Print("🔍 [AUDIT] Module initialized - Bộ phận Kiểm toán sẵn sàng!");
    }
    
-   Print("✅ BODHI GENESIS V4.14 Ready!");
-   Print("   Features: Audit, Dashboard, PriceAction, VirtualSL, PartialClose, TamBao");
-   Print("   V4.14 Fix: Daily reset logic + THUAN THIEN mode (UseFallbackSignal=", UseFallbackSignal ? "ON" : "OFF", ")");
+   Print("✅ BODHI GENESIS V4.16 Ready!");
+   Print("   Features: Audit, Dashboard, PriceAction, VirtualSL, PartialClose, TamBao, 12-Pairs Session");
+   Print("   V4.16: 12 Pairs + Optimized Session Filter + THUAN THIEN mode (UseFallbackSignal=", UseFallbackSignal ? "ON" : "OFF", ")");
    
    return INIT_SUCCEEDED;
 }
@@ -1315,7 +1362,18 @@ bool InitIndicators()
    // TEMA D1 50 = Main Trend (Tự Nhiên)
    h_EMA_D1 = iMA(_Symbol, PERIOD_D1, 50, 0, MODE_EMA, PRICE_CLOSE);
    
-   return (h_RSI_M5 != INVALID_HANDLE && h_RSI_H4 != INVALID_HANDLE && h_ADX_H4 != INVALID_HANDLE && h_EMA_D1 != INVALID_HANDLE);
+   // Check all handles - V4.16: Added ADX_M5 and ADX_H1 check
+   if(h_RSI_M5 == INVALID_HANDLE) { Print("❌ h_RSI_M5 failed"); return false; }
+   if(h_RSI_M15 == INVALID_HANDLE) { Print("❌ h_RSI_M15 failed"); return false; }
+   if(h_RSI_H1 == INVALID_HANDLE) { Print("❌ h_RSI_H1 failed"); return false; }
+   if(h_RSI_H4 == INVALID_HANDLE) { Print("❌ h_RSI_H4 failed"); return false; }
+   if(h_ADX_M5 == INVALID_HANDLE) { Print("❌ h_ADX_M5 failed"); return false; }
+   if(h_ADX_H1 == INVALID_HANDLE) { Print("❌ h_ADX_H1 failed"); return false; }
+   if(h_ADX_H4 == INVALID_HANDLE) { Print("❌ h_ADX_H4 failed"); return false; }
+   if(h_ATR == INVALID_HANDLE) { Print("❌ h_ATR failed"); return false; }
+   if(h_EMA_D1 == INVALID_HANDLE) { Print("❌ h_EMA_D1 failed"); return false; }
+   
+   return true;
 }
 
 //+------------------------------------------------------------------+
@@ -1707,9 +1765,13 @@ bool CheckPanic()
       return false; 
    }
    
-   // Calculate drops
-   double equityDrop = (FSS_LastEquity - equity) / FSS_LastEquity * 100;
-   double priceDrop = MathAbs(FSS_LastPrice - currentPrice) / FSS_LastPrice * 100;
+   // V4.16: Store previous values BEFORE calculating drops
+   double prevEquity = FSS_LastEquity;
+   double prevPrice = FSS_LastPrice;
+   
+   // Calculate drops using previous values
+   double equityDrop = (prevEquity - equity) / prevEquity * 100;
+   double priceDrop = MathAbs(prevPrice - currentPrice) / prevPrice * 100;
    
    // Adjust threshold for indices (less sensitive)
    double threshold = Use_Indices_Logic ? PanicThreshold * FSS5_Sensitivity : PanicThreshold;
@@ -1717,17 +1779,19 @@ bool CheckPanic()
    // Flash crash detection: sudden price spike > 0.5% in one tick
    bool isFlashCrash = (priceDrop > 0.5);
    
-   // Update last values
-   FSS_LastEquity = equity;
-   FSS_LastPrice = currentPrice;
-   FSS_LastCheck = TimeCurrent();
-   
-   // Trigger panic if equity drops OR flash crash detected
+   // V4.16: Check for panic BEFORE updating last values (order matters!)
    if(equityDrop >= threshold)
    {
       Print("🚨 FSS-5 PANIC! Equity drop: ", DoubleToString(equityDrop, 2), "% | Threshold: ", DoubleToString(threshold, 2), "%");
+      Print("   Previous: $", DoubleToString(prevEquity, 2), " | Current: $", DoubleToString(equity, 2));
       CloseAllPositions();
       DailyStopped = true;
+      
+      // Update last values after action
+      FSS_LastEquity = equity;
+      FSS_LastPrice = currentPrice;
+      FSS_LastCheck = TimeCurrent();
+      
       Alert("FSS-5 TRIGGERED! Equity dropped ", DoubleToString(equityDrop, 2), "% - All positions closed!");
       return true;
    }
@@ -1735,11 +1799,22 @@ bool CheckPanic()
    if(isFlashCrash && HasPosition())
    {
       Print("🚨 FSS-5 FLASH CRASH! Price spike: ", DoubleToString(priceDrop, 2), "%");
-      Print("   Last: ", FSS_LastPrice, " Current: ", currentPrice);
+      Print("   Previous: ", DoubleToString(prevPrice, _Digits), " | Current: ", DoubleToString(currentPrice, _Digits));
       CloseAllPositions();
+      
+      // Update last values after action
+      FSS_LastEquity = equity;
+      FSS_LastPrice = currentPrice;
+      FSS_LastCheck = TimeCurrent();
+      
       Alert("FSS-5 FLASH CRASH! Price spiked ", DoubleToString(priceDrop, 2), "% - All positions closed!");
       return true;
    }
+   
+   // Update last values for next check
+   FSS_LastEquity = equity;
+   FSS_LastPrice = currentPrice;
+   FSS_LastCheck = TimeCurrent();
    
    return false;
 }
@@ -2041,18 +2116,20 @@ int GetSignal()
       return 0;
    }
    
-   double rsi_m5 = GetRSI(h_RSI_M5);
-   double rsi_m15 = GetRSI(h_RSI_M15);
-   double rsi_h1 = GetRSI(h_RSI_H1);
-   double rsi_h4 = GetRSI(h_RSI_H4);
-   double adx_m5 = GetADX(h_ADX_M5);
+   // V4.16: Use cached indicator values for performance
+   double rsi_m5 = Cached_RSI_M5;
+   double rsi_m15 = Cached_RSI_M15;
+   double rsi_h1 = Cached_RSI_H1;
+   double rsi_h4 = Cached_RSI_H4;
+   double adx_m5 = Cached_ADX_M5;
    
    // ═══════════════════════════════════════════════════════════════
    // TEMA D1 50 - Main Trend (Tự Nhiên / Đạo)
+   // V4.16: Use cached TEMA for performance
    // Mưa thuận gió hòa: Chỉ trade thuận main trend
    // ═══════════════════════════════════════════════════════════════
-   int mainTrend = GetMainTrend_D1();
-   double tema_d1 = GetTEMA_D1();
+   int mainTrend = Cached_MainTrend;
+   double tema_d1 = Cached_TEMA_D1;
    double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    
    int pa = DetectPriceAction();
@@ -2257,11 +2334,13 @@ double CalculateLot()
 
 //+------------------------------------------------------------------+
 //| Check if trend is strong (for partial close ratio)                 |
+//| V4.16: Uses cached indicator values                                |
 //+------------------------------------------------------------------+
 bool IsTrendStrong()
 {
-   double rsi_h4 = GetRSI(h_RSI_H4);
-   double adx_h4 = GetADX(h_ADX_H4);
+   // V4.16: Use cached values for performance
+   double rsi_h4 = Cached_RSI_H4;
+   double adx_h4 = Cached_ADX_H4;
    
    // Strong trend: RSI clearly directional + ADX > 25
    bool strongBull = (rsi_h4 > 60 && adx_h4 > 25);
@@ -2275,6 +2354,13 @@ bool IsTrendStrong()
 //+------------------------------------------------------------------+
 void ExecuteTrade(int signal)
 {
+   // V4.16: Validate signal parameter
+   if(signal != 1 && signal != -1)
+   {
+      Print("⚠️ [EXECUTE] Invalid signal: ", signal, " - Expected 1 (BUY) or -1 (SELL)");
+      return;
+   }
+   
    // ═══════════════════════════════════════════════════════════════
    // UPDATE TREND ADAPTIVE PARAMS
    // ═══════════════════════════════════════════════════════════════
@@ -2288,6 +2374,13 @@ void ExecuteTrade(int signal)
    }
    
    double lot = CalculateLot();
+   
+   // V4.16: Validate lot size
+   if(lot <= 0)
+   {
+      Print("⚠️ [EXECUTE] Invalid lot size: ", lot, " - Trade cancelled");
+      return;
+   }
    
    // ═══════════════════════════════════════════════════════════════
    // APPLY FINAL MULTIPLIER (Karma × Trend) - All trades
@@ -2630,7 +2723,17 @@ bool IsInSession()
       Print("⚠️ [SESSION] Unknown symbol: ", symbol, " - Using default 7-20h");
    }
    
-   return (dt.hour >= startHour && dt.hour <= endHour);
+   // V4.16: Fix cross-midnight session logic (e.g., 22-06)
+   if(startHour <= endHour)
+   {
+      // Normal session (e.g., 7-20)
+      return (dt.hour >= startHour && dt.hour <= endHour);
+   }
+   else
+   {
+      // Cross-midnight session (e.g., 22-06)
+      return (dt.hour >= startHour || dt.hour <= endHour);
+   }
 }
 
 void ResetDaily()
@@ -2706,6 +2809,9 @@ void OnTick()
       if(EnableAudit)
          g_Audit.SetDayStartEquity(AccountInfoDouble(ACCOUNT_EQUITY));
    }
+   
+   // V4.16: Update cached indicators (performance optimization)
+   UpdateCachedIndicators();
    
    // Update spread
    UpdateSpread();
@@ -3062,6 +3168,7 @@ void OnDeinit(const int reason)
 {
    ObjectsDeleteAll(0, "BD_");
    
+   // V4.16: Release all indicator handles (including h_EMA_D1)
    IndicatorRelease(h_RSI_M5);
    IndicatorRelease(h_RSI_M15);
    IndicatorRelease(h_RSI_H1);
@@ -3070,8 +3177,9 @@ void OnDeinit(const int reason)
    IndicatorRelease(h_ADX_H1);
    IndicatorRelease(h_ADX_H4);
    IndicatorRelease(h_ATR);
+   IndicatorRelease(h_EMA_D1);  // V4.16: Added missing release
    
-   Print("🕉️ BODHI V4.14 TRUNG ĐẠO Stopped");
+   Print("🕉️ BODHI V4.16 TRUNG ĐẠO Stopped");
    Print("   Karma:", Karma, " Level:", GetKarmaLevel());
    Print("   🙏 Tam Bảo: 🛕", Chua, " 📜", Kinh, " 🙏", Tang);
 }
