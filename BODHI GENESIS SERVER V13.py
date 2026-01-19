@@ -122,6 +122,8 @@ if NUMBA_AVAILABLE:
 @jit(nopython=True, cache=True)
 def _monte_carlo_simulate_single(prices, returns_mean, returns_std, n_steps):
 """Single Monte Carlo simulation (JIT compiled)"""
+if n_steps <= 0 or len(prices) == 0:
+    return 0.0, 0.0, 0.0
 current_price = prices[-1]
 max_price = current_price
 min_price = current_price
@@ -140,6 +142,8 @@ min_price = current_price
 def monte_carlo_fast(prices, returns_mean, returns_std, n_sims, n_steps, 
                      tp_pips, sl_pips, pip_value):
     """Fast Monte Carlo with parallel processing"""
+    if n_sims <= 0 or n_steps <= 0 or len(prices) == 0:
+        return 0, 0.0, 0.0, 0.0
     current_price = prices[-1]
     tp_price = current_price + (tp_pips * pip_value)
     sl_price = current_price - (sl_pips * pip_value)
@@ -167,6 +171,8 @@ def monte_carlo_fast(prices, returns_mean, returns_std, n_sims, n_steps,
 def kalman_filter_array_fast(measurements, Q=0.001, R=0.01):
     """Apply Kalman filter to array (JIT compiled)"""
     n = len(measurements)
+    if n == 0:
+        return np.empty(0)
     filtered = np.empty(n)
     
     x = measurements[0]
