@@ -71,16 +71,16 @@ from functools import lru_cache
 # PyTorch
 
 try:
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
-from torch.distributions import Categorical
-TORCH_AVAILABLE = True
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+    import torch.optim as optim
+    from torch.utils.data import DataLoader, TensorDataset
+    from torch.distributions import Categorical
+    TORCH_AVAILABLE = True
 except ImportError:
-TORCH_AVAILABLE = False
-print("[WARN] PyTorch not found - AI features disabled")
+    TORCH_AVAILABLE = False
+    print("[WARN] PyTorch not found - AI features disabled")
 
 # ======================================================================
 
@@ -97,13 +97,13 @@ VERSION = "13.1 (Phase 2+3: Kalman + MC + Poly + Sentiment + Kelly + VolumeProfi
 # ======================================================================
 
 try:
-import numba
-from numba import jit, prange
-NUMBA_AVAILABLE = True
-# Logger message printed after logger initialized
+    import numba
+    from numba import jit, prange
+    NUMBA_AVAILABLE = True
+    # Logger message printed after logger initialized
 except ImportError:
-NUMBA_AVAILABLE = False
-# Logger message printed after logger initialized
+    NUMBA_AVAILABLE = False
+    # Logger message printed after logger initialized
 
 # ======================================================================
 #
@@ -112,128 +112,128 @@ NUMBA_AVAILABLE = False
 # ======================================================================
 
 try:
-import xgboost as xgb
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-XGBOOST_AVAILABLE = True
+    import xgboost as xgb
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+    XGBOOST_AVAILABLE = True
 except ImportError:
-XGBOOST_AVAILABLE = False
+    XGBOOST_AVAILABLE = False
 if NUMBA_AVAILABLE:
-@jit(nopython=True, cache=True)
-def _monte_carlo_simulate_single(prices, returns_mean, returns_std, n_steps):
-"""Single Monte Carlo simulation (JIT compiled)"""
-current_price = prices[-1]
-max_price = current_price
-min_price = current_price
+    @jit(nopython=True, cache=True)
+    def _monte_carlo_simulate_single(prices, returns_mean, returns_std, n_steps):
+        """Single Monte Carlo simulation (JIT compiled)"""
+        current_price = prices[-1]
+        max_price = current_price
+        min_price = current_price
 
-    for _ in range(n_steps):
-        ret = np.random.normal(returns_mean, returns_std)
-        current_price *= (1 + ret)
-        if current_price > max_price:
-            max_price = current_price
-        if current_price < min_price:
-            min_price = current_price
-    
-    return current_price, max_price, min_price
-
-@jit(nopython=True, parallel=True, cache=True)
-def monte_carlo_fast(prices, returns_mean, returns_std, n_sims, n_steps, 
-                     tp_pips, sl_pips, pip_value):
-    """Fast Monte Carlo with parallel processing"""
-    current_price = prices[-1]
-    tp_price = current_price + (tp_pips * pip_value)
-    sl_price = current_price - (sl_pips * pip_value)
-    
-    wins = 0
-    total_profit = 0.0
-    
-    for i in prange(n_sims):
-        final_price, max_price, min_price = _monte_carlo_simulate_single(
-            prices, returns_mean, returns_std, n_steps
-        )
+        for _ in range(n_steps):
+            ret = np.random.normal(returns_mean, returns_std)
+            current_price *= (1 + ret)
+            if current_price > max_price:
+                max_price = current_price
+            if current_price < min_price:
+                min_price = current_price
         
-        if max_price >= tp_price:
-            wins += 1
-            total_profit += tp_pips
-        elif min_price <= sl_price:
-            total_profit -= sl_pips
-    
-    win_probability = wins / n_sims
-    avg_profit = total_profit / n_sims
-    
-    return wins, total_profit, avg_profit, win_probability
+        return current_price, max_price, min_price
 
-@jit(nopython=True, cache=True)
-def kalman_filter_array_fast(measurements, Q=0.001, R=0.01):
-    """Apply Kalman filter to array (JIT compiled)"""
-    n = len(measurements)
-    filtered = np.empty(n)
-    
-    x = measurements[0]
-    P = 1.0
-    
-    for i in range(n):
-        # Predict
-        x_pred = x
-        P_pred = P + Q
+    @jit(nopython=True, parallel=True, cache=True)
+    def monte_carlo_fast(prices, returns_mean, returns_std, n_sims, n_steps, 
+                         tp_pips, sl_pips, pip_value):
+        """Fast Monte Carlo with parallel processing"""
+        current_price = prices[-1]
+        tp_price = current_price + (tp_pips * pip_value)
+        sl_price = current_price - (sl_pips * pip_value)
         
-        # Update
-        y = measurements[i] - x_pred
-        S = P_pred + R
-        K = P_pred / S
-        x = x_pred + K * y
-        P = (1 - K) * P_pred
+        wins = 0
+        total_profit = 0.0
         
-        filtered[i] = x
-    
-    return filtered
+        for i in prange(n_sims):
+            final_price, max_price, min_price = _monte_carlo_simulate_single(
+                prices, returns_mean, returns_std, n_steps
+            )
+            
+            if max_price >= tp_price:
+                wins += 1
+                total_profit += tp_pips
+            elif min_price <= sl_price:
+                total_profit -= sl_pips
+        
+        win_probability = wins / n_sims
+        avg_profit = total_profit / n_sims
+        
+        return wins, total_profit, avg_profit, win_probability
 
-@jit(nopython=True, cache=True)
-def find_swing_highs_fast(prices, window=5):
-    """Find swing highs (JIT compiled)"""
-    swings = []
-    n = len(prices)
-    
-    for i in range(window, n - window):
-        is_swing = True
-        for j in range(i - window, i + window + 1):
-            if prices[j] > prices[i]:
-                is_swing = False
-                break
-        if is_swing:
-            swings.append(prices[i])
-    
-    return np.array(swings)
+    @jit(nopython=True, cache=True)
+    def kalman_filter_array_fast(measurements, Q=0.001, R=0.01):
+        """Apply Kalman filter to array (JIT compiled)"""
+        n = len(measurements)
+        filtered = np.empty(n)
+        
+        x = measurements[0]
+        P = 1.0
+        
+        for i in range(n):
+            # Predict
+            x_pred = x
+            P_pred = P + Q
+            
+            # Update
+            y = measurements[i] - x_pred
+            S = P_pred + R
+            K = P_pred / S
+            x = x_pred + K * y
+            P = (1 - K) * P_pred
+            
+            filtered[i] = x
+        
+        return filtered
 
-@jit(nopython=True, cache=True)
-def find_swing_lows_fast(prices, window=5):
-    """Find swing lows (JIT compiled)"""
-    swings = []
-    n = len(prices)
-    
-    for i in range(window, n - window):
-        is_swing = True
-        for j in range(i - window, i + window + 1):
-            if prices[j] < prices[i]:
-                is_swing = False
-                break
-        if is_swing:
-            swings.append(prices[i])
-    
-    return np.array(swings)
+    @jit(nopython=True, cache=True)
+    def find_swing_highs_fast(prices, window=5):
+        """Find swing highs (JIT compiled)"""
+        swings = []
+        n = len(prices)
+        
+        for i in range(window, n - window):
+            is_swing = True
+            for j in range(i - window, i + window + 1):
+                if prices[j] > prices[i]:
+                    is_swing = False
+                    break
+            if is_swing:
+                swings.append(prices[i])
+        
+        return np.array(swings)
 
-pass  # logger.info("✅ Numba JIT functions compiled")
+    @jit(nopython=True, cache=True)
+    def find_swing_lows_fast(prices, window=5):
+        """Find swing lows (JIT compiled)"""
+        swings = []
+        n = len(prices)
+        
+        for i in range(window, n - window):
+            is_swing = True
+            for j in range(i - window, i + window + 1):
+                if prices[j] < prices[i]:
+                    is_swing = False
+                    break
+            if is_swing:
+                swings.append(prices[i])
+        
+        return np.array(swings)
+
+    pass  # logger.info("✅ Numba JIT functions compiled")
 
 else:
-# Dummy functions if Numba not available
-def monte_carlo_fast(*args, **kwargs):
-raise NotImplementedError("Numba not installed")
-def kalman_filter_array_fast(*args, **kwargs):
-raise NotImplementedError("Numba not installed")
-def find_swing_highs_fast(*args, **kwargs):
-raise NotImplementedError("Numba not installed")
-def find_swing_lows_fast(*args, **kwargs):
-raise NotImplementedError("Numba not installed")
+    # Dummy functions if Numba not available
+    def monte_carlo_fast(*args, **kwargs):
+        raise NotImplementedError("Numba not installed")
+    def kalman_filter_array_fast(*args, **kwargs):
+        raise NotImplementedError("Numba not installed")
+    def find_swing_highs_fast(*args, **kwargs):
+        raise NotImplementedError("Numba not installed")
+    def find_swing_lows_fast(*args, **kwargs):
+        raise NotImplementedError("Numba not installed")
 DEFAULT_PORT = 9998
 
 DATA_DIR = "./bodhi_data"
@@ -465,17 +465,17 @@ TREND_CONFIG = {
 }
 
 def get_trend_strength(adx_h4: float, rsi_h4: float, tema_dist_pct: float) -> str:
-"""Classify trend strength: STRONG / MODERATE / WEAK"""
-if adx_h4 >= 40 and tema_dist_pct >= 0.5:
-if rsi_h4 > 60 or rsi_h4 < 40:
-return 'STRONG'
-if adx_h4 >= 25 and tema_dist_pct >= 0.1:
-return 'MODERATE'
-return 'WEAK'
+    """Classify trend strength: STRONG / MODERATE / WEAK"""
+    if adx_h4 >= 40 and tema_dist_pct >= 0.5:
+        if rsi_h4 > 60 or rsi_h4 < 40:
+            return 'STRONG'
+    if adx_h4 >= 25 and tema_dist_pct >= 0.1:
+        return 'MODERATE'
+    return 'WEAK'
 
 def get_trend_params(trend_strength: str) -> dict:
-"""Get adaptive parameters for given trend strength"""
-return TREND_CONFIG.get(trend_strength, TREND_CONFIG['MODERATE'])
+    """Get adaptive parameters for given trend strength"""
+    return TREND_CONFIG.get(trend_strength, TREND_CONFIG['MODERATE'])
 
 # ======================================================================
 
@@ -484,132 +484,132 @@ return TREND_CONFIG.get(trend_strength, TREND_CONFIG['MODERATE'])
 # ======================================================================
 
 class KalmanFilter:
-"""
-Kalman Filter for denoising RSI/ADX signals.
-Reduces false signals caused by market noise.
-
-State: [value, velocity]
-Measurement: raw value
-"""
-
-def __init__(self, process_variance: float = 0.01, measurement_variance: float = 0.1):
     """
-    Args:
-        process_variance: Q - how much we expect the true value to change
-        measurement_variance: R - how noisy our measurements are
-    """
-    self.Q = process_variance  # Process noise
-    self.R = measurement_variance  # Measurement noise
-    
-    # State estimate [value, velocity]
-    self.x = np.array([50.0, 0.0])  # Initial: RSI=50, no velocity
-    
-    # State covariance
-    self.P = np.array([[1.0, 0.0],
-                      [0.0, 1.0]])
-    
-    # State transition matrix (predict next state)
-    self.F = np.array([[1.0, 1.0],
-                      [0.0, 1.0]])
-    
-    # Measurement matrix (we only measure value, not velocity)
-    self.H = np.array([[1.0, 0.0]])
-    
-    # Process noise covariance
-    self.Q_matrix = np.array([[self.Q, 0.0],
-                              [0.0, self.Q]])
-    
-    self.initialized = False
+    Kalman Filter for denoising RSI/ADX signals.
+    Reduces false signals caused by market noise.
 
-def reset(self, initial_value: float = 50.0):
-    """Reset filter with new initial value"""
-    self.x = np.array([initial_value, 0.0])
-    self.P = np.array([[1.0, 0.0],
-                      [0.0, 1.0]])
-    self.initialized = True
-
-def update(self, measurement: float) -> float:
+    State: [value, velocity]
+    Measurement: raw value
     """
-    Process new measurement and return filtered value.
-    
-    Args:
-        measurement: Raw RSI/ADX value
+
+    def __init__(self, process_variance: float = 0.01, measurement_variance: float = 0.1):
+        """
+        Args:
+            process_variance: Q - how much we expect the true value to change
+            measurement_variance: R - how noisy our measurements are
+        """
+        self.Q = process_variance  # Process noise
+        self.R = measurement_variance  # Measurement noise
         
-    Returns:
-        Filtered (denoised) value
-    """
-    if not self.initialized:
-        self.reset(measurement)
-        return measurement
-    
-    # Predict step
-    x_pred = self.F @ self.x
-    P_pred = self.F @ self.P @ self.F.T + self.Q_matrix
-    
-    # Update step
-    y = measurement - self.H @ x_pred  # Innovation
-    S = self.H @ P_pred @ self.H.T + self.R  # Innovation covariance
-    K = P_pred @ self.H.T / S  # Kalman gain
-    
-    self.x = x_pred + K.flatten() * y
-    self.P = (np.eye(2) - np.outer(K, self.H)) @ P_pred
-    
-    # Clamp to valid range
-    filtered_value = np.clip(self.x[0], 0, 100)
-    
-    return float(filtered_value)
+        # State estimate [value, velocity]
+        self.x = np.array([50.0, 0.0])  # Initial: RSI=50, no velocity
+        
+        # State covariance
+        self.P = np.array([[1.0, 0.0],
+                          [0.0, 1.0]])
+        
+        # State transition matrix (predict next state)
+        self.F = np.array([[1.0, 1.0],
+                          [0.0, 1.0]])
+        
+        # Measurement matrix (we only measure value, not velocity)
+        self.H = np.array([[1.0, 0.0]])
+        
+        # Process noise covariance
+        self.Q_matrix = np.array([[self.Q, 0.0],
+                                  [0.0, self.Q]])
+        
+        self.initialized = False
 
-def get_velocity(self) -> float:
-    """Get current estimated velocity (rate of change)"""
-    return float(self.x[1])
+    def reset(self, initial_value: float = 50.0):
+        """Reset filter with new initial value"""
+        self.x = np.array([initial_value, 0.0])
+        self.P = np.array([[1.0, 0.0],
+                          [0.0, 1.0]])
+        self.initialized = True
 
-def filter_series(self, values: List[float]) -> List[float]:
-    """Filter a series of values"""
-    self.reset(values[0] if values else 50.0)
-    return [self.update(v) for v in values]
+    def update(self, measurement: float) -> float:
+        """
+        Process new measurement and return filtered value.
+        
+        Args:
+            measurement: Raw RSI/ADX value
+            
+        Returns:
+            Filtered (denoised) value
+        """
+        if not self.initialized:
+            self.reset(measurement)
+            return measurement
+        
+        # Predict step
+        x_pred = self.F @ self.x
+        P_pred = self.F @ self.P @ self.F.T + self.Q_matrix
+        
+        # Update step
+        y = measurement - self.H @ x_pred  # Innovation
+        S = self.H @ P_pred @ self.H.T + self.R  # Innovation covariance
+        K = P_pred @ self.H.T / S  # Kalman gain
+        
+        self.x = x_pred + K.flatten() * y
+        self.P = (np.eye(2) - np.outer(K, self.H)) @ P_pred
+        
+        # Clamp to valid range
+        filtered_value = np.clip(self.x[0], 0, 100)
+        
+        return float(filtered_value)
+
+    def get_velocity(self) -> float:
+        """Get current estimated velocity (rate of change)"""
+        return float(self.x[1])
+
+    def filter_series(self, values: List[float]) -> List[float]:
+        """Filter a series of values"""
+        self.reset(values[0] if values else 50.0)
+        return [self.update(v) for v in values]
 
 class KalmanFilterBank:
-"""
-Bank of Kalman Filters for multiple indicators per symbol.
-Maintains state across API calls.
-"""
-
-def __init__(self):
-    self.filters = {}  # {symbol: {indicator: KalmanFilter}}
-    self.lock = Lock()
-
-def get_filter(self, symbol: str, indicator: str) -> KalmanFilter:
-    """Get or create filter for symbol/indicator pair"""
-    key = f"{symbol}_{indicator}"
-    if key not in self.filters:
-        # Different noise levels for different indicators
-        if 'rsi' in indicator.lower():
-            self.filters[key] = KalmanFilter(process_variance=0.05, measurement_variance=0.2)
-        elif 'adx' in indicator.lower():
-            self.filters[key] = KalmanFilter(process_variance=0.02, measurement_variance=0.15)
-        else:
-            self.filters[key] = KalmanFilter()
-    return self.filters[key]
-
-def filter_indicators(self, symbol: str, data: Dict[str, float]) -> Dict[str, float]:
     """
-    Filter all indicators for a symbol.
-    
-    Args:
-        symbol: Trading symbol
-        data: Dict of indicator values {'rsi_m15': 45, 'adx_m15': 25, ...}
+    Bank of Kalman Filters for multiple indicators per symbol.
+    Maintains state across API calls.
+    """
+
+    def __init__(self):
+        self.filters = {}  # {symbol: {indicator: KalmanFilter}}
+        self.lock = Lock()
+
+    def get_filter(self, symbol: str, indicator: str) -> KalmanFilter:
+        """Get or create filter for symbol/indicator pair"""
+        key = f"{symbol}_{indicator}"
+        if key not in self.filters:
+            # Different noise levels for different indicators
+            if 'rsi' in indicator.lower():
+                self.filters[key] = KalmanFilter(process_variance=0.05, measurement_variance=0.2)
+            elif 'adx' in indicator.lower():
+                self.filters[key] = KalmanFilter(process_variance=0.02, measurement_variance=0.15)
+            else:
+                self.filters[key] = KalmanFilter()
+        return self.filters[key]
+
+    def filter_indicators(self, symbol: str, data: Dict[str, float]) -> Dict[str, float]:
+        """
+        Filter all indicators for a symbol.
         
-    Returns:
-        Dict of filtered values with '_kalman' suffix
-    """
-    with self.lock:
-        filtered = {}
-        for key, value in data.items():
-            if any(ind in key.lower() for ind in ['rsi', 'adx']):
-                kf = self.get_filter(symbol, key)
-                filtered[f"{key}_kalman"] = kf.update(float(value))
-                filtered[f"{key}_velocity"] = kf.get_velocity()
-        return filtered
+        Args:
+            symbol: Trading symbol
+            data: Dict of indicator values {'rsi_m15': 45, 'adx_m15': 25, ...}
+            
+        Returns:
+            Dict of filtered values with '_kalman' suffix
+        """
+        with self.lock:
+            filtered = {}
+            for key, value in data.items():
+                if any(ind in key.lower() for ind in ['rsi', 'adx']):
+                    kf = self.get_filter(symbol, key)
+                    filtered[f"{key}_kalman"] = kf.update(float(value))
+                    filtered[f"{key}_velocity"] = kf.get_velocity()
+            return filtered
 
 # ======================================================================
 
@@ -618,136 +618,136 @@ def filter_indicators(self, symbol: str, data: Dict[str, float]) -> Dict[str, fl
 # ======================================================================
 
 class MonteCarloSimulator:
-"""
-Monte Carlo simulation for trade risk estimation.
-Simulates multiple scenarios to estimate win probability.
-"""
-
-def __init__(self, n_simulations: int = 1000):
-    self.n_simulations = n_simulations
-    
-    # Historical volatility by symbol (can be updated from real data)
-    self.volatility = {
-        'EURUSD': 0.0008,  # ~8 pips typical M15 range
-        'GBPUSD': 0.0012,  # ~12 pips
-        'XAUUSD': 2.5,     # ~$2.5
-        'US30': 25.0       # ~25 points
-    }
-    
-    # Win rate by signal strength (from historical data)
-    self.base_win_rates = {
-        'STRONG': 0.65,
-        'MODERATE': 0.55,
-        'WEAK': 0.45
-    }
-
-def simulate_trade(self, 
-                  symbol: str,
-                  signal: int,  # 1=BUY, -1=SELL
-                  entry_price: float,
-                  sl_distance: float,
-                  tp_distance: float,
-                  signal_strength: str = 'MODERATE',
-                  confidence: float = 0.5) -> Dict:
     """
-    Simulate trade outcomes using Monte Carlo.
-    
-    Args:
-        symbol: Trading symbol
-        signal: 1 for BUY, -1 for SELL
-        entry_price: Entry price
-        sl_distance: Stop loss distance (in price)
-        tp_distance: Take profit distance (in price)
-        signal_strength: STRONG/MODERATE/WEAK
-        confidence: Model confidence (0-1)
+    Monte Carlo simulation for trade risk estimation.
+    Simulates multiple scenarios to estimate win probability.
+    """
+
+    def __init__(self, n_simulations: int = 1000):
+        self.n_simulations = n_simulations
         
-    Returns:
-        Dict with win_probability, expected_rr, risk_score
-    """
-    if signal == 0:
-        return {
-            'win_probability': 0,
-            'expected_rr': 0,
-            'risk_score': 0,
-            'simulations': 0,
-            'recommendation': 'NO_TRADE'
+        # Historical volatility by symbol (can be updated from real data)
+        self.volatility = {
+            'EURUSD': 0.0008,  # ~8 pips typical M15 range
+            'GBPUSD': 0.0012,  # ~12 pips
+            'XAUUSD': 2.5,     # ~$2.5
+            'US30': 25.0       # ~25 points
         }
-    
-    vol = self.volatility.get(symbol, 0.001)
-    base_wr = self.base_win_rates.get(signal_strength, 0.5)
-    
-    # Adjust win rate based on confidence
-    adjusted_wr = base_wr * (0.7 + 0.3 * confidence)
-    
-    wins = 0
-    total_pnl = 0
-    
-    for _ in range(self.n_simulations):
-        # Simulate price path (random walk with drift based on signal)
-        drift = signal * vol * 0.1 * confidence  # Small drift in signal direction
         
-        # Simulate time steps until SL or TP hit
-        price = entry_price
-        hit_tp = False
-        hit_sl = False
-        
-        for step in range(100):  # Max 100 steps
-            # Random price change
-            change = np.random.normal(drift, vol)
-            price += change
-            
-            # Check TP/SL
-            if signal == 1:  # BUY
-                if price >= entry_price + tp_distance:
-                    hit_tp = True
-                    break
-                elif price <= entry_price - sl_distance:
-                    hit_sl = True
-                    break
-            else:  # SELL
-                if price <= entry_price - tp_distance:
-                    hit_tp = True
-                    break
-                elif price >= entry_price + sl_distance:
-                    hit_sl = True
-                    break
-        
-        if hit_tp:
-            wins += 1
-            total_pnl += tp_distance
-        elif hit_sl:
-            total_pnl -= sl_distance
-        # else: no hit, treat as scratch (0 pnl)
-    
-    win_probability = wins / self.n_simulations
-    expected_pnl = total_pnl / self.n_simulations
-    risk_reward = tp_distance / sl_distance if sl_distance > 0 else 0
-    
-    # Risk score: 0-100, higher = riskier
-    risk_score = 100 * (1 - win_probability) * (1 / (1 + risk_reward))
-    
-    # Recommendation
-    if win_probability >= 0.6 and risk_reward >= 1.5:
-        recommendation = 'STRONG_ENTRY'
-    elif win_probability >= 0.5 and risk_reward >= 1.0:
-        recommendation = 'NORMAL_ENTRY'
-    elif win_probability >= 0.45:
-        recommendation = 'WEAK_ENTRY'
-    else:
-        recommendation = 'AVOID'
-    
-    return {
-        'win_probability': round(win_probability, 3),
-        'expected_pnl_ratio': round(expected_pnl / sl_distance if sl_distance > 0 else 0, 3),
-        'risk_reward': round(risk_reward, 2),
-        'risk_score': round(risk_score, 1),
-        'simulations': self.n_simulations,
-        'recommendation': recommendation
-    }
+        # Win rate by signal strength (from historical data)
+        self.base_win_rates = {
+            'STRONG': 0.65,
+            'MODERATE': 0.55,
+            'WEAK': 0.45
+        }
 
-def update_volatility(self, symbol: str, volatility: float):
-    """Update volatility estimate from real data"""
-    self.volatility[symbol] = volatility
+    def simulate_trade(self, 
+                      symbol: str,
+                      signal: int,  # 1=BUY, -1=SELL
+                      entry_price: float,
+                      sl_distance: float,
+                      tp_distance: float,
+                      signal_strength: str = 'MODERATE',
+                      confidence: float = 0.5) -> Dict:
+        """
+        Simulate trade outcomes using Monte Carlo.
+        
+        Args:
+            symbol: Trading symbol
+            signal: 1 for BUY, -1 for SELL
+            entry_price: Entry price
+            sl_distance: Stop loss distance (in price)
+            tp_distance: Take profit distance (in price)
+            signal_strength: STRONG/MODERATE/WEAK
+            confidence: Model confidence (0-1)
+            
+        Returns:
+            Dict with win_probability, expected_rr, risk_score
+        """
+        if signal == 0:
+            return {
+                'win_probability': 0,
+                'expected_rr': 0,
+                'risk_score': 0,
+                'simulations': 0,
+                'recommendation': 'NO_TRADE'
+            }
+        
+        vol = self.volatility.get(symbol, 0.001)
+        base_wr = self.base_win_rates.get(signal_strength, 0.5)
+        
+        # Adjust win rate based on confidence
+        adjusted_wr = base_wr * (0.7 + 0.3 * confidence)
+        
+        wins = 0
+        total_pnl = 0
+        
+        for _ in range(self.n_simulations):
+            # Simulate price path (random walk with drift based on signal)
+            drift = signal * vol * 0.1 * confidence  # Small drift in signal direction
+            
+            # Simulate time steps until SL or TP hit
+            price = entry_price
+            hit_tp = False
+            hit_sl = False
+            
+            for step in range(100):  # Max 100 steps
+                # Random price change
+                change = np.random.normal(drift, vol)
+                price += change
+                
+                # Check TP/SL
+                if signal == 1:  # BUY
+                    if price >= entry_price + tp_distance:
+                        hit_tp = True
+                        break
+                    elif price <= entry_price - sl_distance:
+                        hit_sl = True
+                        break
+                else:  # SELL
+                    if price <= entry_price - tp_distance:
+                        hit_tp = True
+                        break
+                    elif price >= entry_price + sl_distance:
+                        hit_sl = True
+                        break
+            
+            if hit_tp:
+                wins += 1
+                total_pnl += tp_distance
+            elif hit_sl:
+                total_pnl -= sl_distance
+            # else: no hit, treat as scratch (0 pnl)
+        
+        win_probability = wins / self.n_simulations
+        expected_pnl = total_pnl / self.n_simulations
+        risk_reward = tp_distance / sl_distance if sl_distance > 0 else 0
+        
+        # Risk score: 0-100, higher = riskier
+        risk_score = 100 * (1 - win_probability) * (1 / (1 + risk_reward))
+        
+        # Recommendation
+        if win_probability >= 0.6 and risk_reward >= 1.5:
+            recommendation = 'STRONG_ENTRY'
+        elif win_probability >= 0.5 and risk_reward >= 1.0:
+            recommendation = 'NORMAL_ENTRY'
+        elif win_probability >= 0.45:
+            recommendation = 'WEAK_ENTRY'
+        else:
+            recommendation = 'AVOID'
+        
+        return {
+            'win_probability': round(win_probability, 3),
+            'expected_pnl_ratio': round(expected_pnl / sl_distance if sl_distance > 0 else 0, 3),
+            'risk_reward': round(risk_reward, 2),
+            'risk_score': round(risk_score, 1),
+            'simulations': self.n_simulations,
+            'recommendation': recommendation
+        }
+
+    def update_volatility(self, symbol: str, volatility: float):
+        """Update volatility estimate from real data"""
+        self.volatility[symbol] = volatility
 
 # ======================================================================
 
@@ -756,115 +756,115 @@ def update_volatility(self, symbol: str, volatility: float):
 # ======================================================================
 
 class PolynomialFeatureGenerator:
-"""
-Generate polynomial and interaction features for better predictions.
-Creates: RSI^2, ADX^2, RSI*ADX, normalized features, etc.
-"""
-
-def __init__(self, degree: int = 2, include_interactions: bool = True):
-    self.degree = degree
-    self.include_interactions = include_interactions
-
-def generate(self, data: Dict[str, float]) -> Dict[str, float]:
     """
-    Generate polynomial features from indicator data.
-    
-    Args:
-        data: Dict of indicator values
+    Generate polynomial and interaction features for better predictions.
+    Creates: RSI^2, ADX^2, RSI*ADX, normalized features, etc.
+    """
+
+    def __init__(self, degree: int = 2, include_interactions: bool = True):
+        self.degree = degree
+        self.include_interactions = include_interactions
+
+    def generate(self, data: Dict[str, float]) -> Dict[str, float]:
+        """
+        Generate polynomial features from indicator data.
         
-    Returns:
-        Dict with original + polynomial features
-    """
-    features = dict(data)  # Copy original
-    
-    # Extract base indicators
-    rsi_m15 = data.get('rsi_m15', 50)
-    rsi_h1 = data.get('rsi_h1', 50)
-    rsi_h4 = data.get('rsi_h4', 50)
-    adx_m15 = data.get('adx_m15', 20)
-    adx_h4 = data.get('adx_h4', 20)
-    
-    # Normalize to 0-1 range
-    rsi_m15_norm = rsi_m15 / 100
-    rsi_h1_norm = rsi_h1 / 100
-    rsi_h4_norm = rsi_h4 / 100
-    adx_m15_norm = min(adx_m15 / 50, 1.0)
-    adx_h4_norm = min(adx_h4 / 50, 1.0)
-    
-    # Polynomial features (degree 2)
-    features['rsi_m15_sq'] = rsi_m15_norm ** 2
-    features['rsi_h1_sq'] = rsi_h1_norm ** 2
-    features['rsi_h4_sq'] = rsi_h4_norm ** 2
-    features['adx_m15_sq'] = adx_m15_norm ** 2
-    features['adx_h4_sq'] = adx_h4_norm ** 2
-    
-    # Interaction features
-    if self.include_interactions:
-        features['rsi_m15_x_adx_m15'] = rsi_m15_norm * adx_m15_norm
-        features['rsi_h1_x_adx_h4'] = rsi_h1_norm * adx_h4_norm
-        features['rsi_m15_x_rsi_h1'] = rsi_m15_norm * rsi_h1_norm
-        features['rsi_h1_x_rsi_h4'] = rsi_h1_norm * rsi_h4_norm
-        features['adx_m15_x_adx_h4'] = adx_m15_norm * adx_h4_norm
-    
-    # Derived features
-    features['rsi_avg'] = (rsi_m15 + rsi_h1 + rsi_h4) / 3
-    features['rsi_std'] = np.std([rsi_m15, rsi_h1, rsi_h4])
-    features['rsi_range'] = max(rsi_m15, rsi_h1, rsi_h4) - min(rsi_m15, rsi_h1, rsi_h4)
-    features['adx_avg'] = (adx_m15 + adx_h4) / 2
-    
-    # Distance from extremes (overbought/oversold)
-    features['rsi_m15_dist_30'] = abs(rsi_m15 - 30) / 100  # Distance from oversold
-    features['rsi_m15_dist_70'] = abs(rsi_m15 - 70) / 100  # Distance from overbought
-    features['rsi_m15_dist_50'] = abs(rsi_m15 - 50) / 100  # Distance from neutral
-    
-    # Trend alignment score
-    if data.get('main_trend', 0) == 1:  # Bullish
-        features['trend_alignment'] = (100 - rsi_m15) / 100  # Lower RSI = better buy
-    elif data.get('main_trend', 0) == -1:  # Bearish
-        features['trend_alignment'] = rsi_m15 / 100  # Higher RSI = better sell
-    else:
-        features['trend_alignment'] = 0.5
-    
-    # Momentum features
-    features['rsi_momentum'] = rsi_m15 - rsi_h1  # Short vs medium term
-    features['rsi_acceleration'] = (rsi_m15 - rsi_h1) - (rsi_h1 - rsi_h4)  # Rate of change
-    
-    # ADX trend strength category
-    if adx_m15 >= 40:
-        features['adx_category'] = 1.0  # Strong trend
-    elif adx_m15 >= 25:
-        features['adx_category'] = 0.5  # Moderate trend
-    else:
-        features['adx_category'] = 0.0  # Weak/no trend
-    
-    return features
-
-def get_feature_vector(self, data: Dict[str, float], 
-                      feature_names: List[str] = None) -> np.ndarray:
-    """
-    Get feature vector for model input.
-    
-    Args:
-        data: Raw indicator data
-        feature_names: List of feature names to include (in order)
+        Args:
+            data: Dict of indicator values
+            
+        Returns:
+            Dict with original + polynomial features
+        """
+        features = dict(data)  # Copy original
         
-    Returns:
-        numpy array of features
-    """
-    features = self.generate(data)
-    
-    if feature_names is None:
-        feature_names = [
-            'rsi_m15', 'rsi_h1', 'rsi_h4',
-            'adx_m15', 'adx_h4',
-            'rsi_m15_sq', 'rsi_h1_sq', 
-            'rsi_m15_x_adx_m15', 'rsi_h1_x_adx_h4',
-            'rsi_avg', 'rsi_std', 'rsi_range',
-            'trend_alignment', 'rsi_momentum',
-            'adx_category'
-        ]
-    
-    return np.array([features.get(name, 0) for name in feature_names])
+        # Extract base indicators
+        rsi_m15 = data.get('rsi_m15', 50)
+        rsi_h1 = data.get('rsi_h1', 50)
+        rsi_h4 = data.get('rsi_h4', 50)
+        adx_m15 = data.get('adx_m15', 20)
+        adx_h4 = data.get('adx_h4', 20)
+        
+        # Normalize to 0-1 range
+        rsi_m15_norm = rsi_m15 / 100
+        rsi_h1_norm = rsi_h1 / 100
+        rsi_h4_norm = rsi_h4 / 100
+        adx_m15_norm = min(adx_m15 / 50, 1.0)
+        adx_h4_norm = min(adx_h4 / 50, 1.0)
+        
+        # Polynomial features (degree 2)
+        features['rsi_m15_sq'] = rsi_m15_norm ** 2
+        features['rsi_h1_sq'] = rsi_h1_norm ** 2
+        features['rsi_h4_sq'] = rsi_h4_norm ** 2
+        features['adx_m15_sq'] = adx_m15_norm ** 2
+        features['adx_h4_sq'] = adx_h4_norm ** 2
+        
+        # Interaction features
+        if self.include_interactions:
+            features['rsi_m15_x_adx_m15'] = rsi_m15_norm * adx_m15_norm
+            features['rsi_h1_x_adx_h4'] = rsi_h1_norm * adx_h4_norm
+            features['rsi_m15_x_rsi_h1'] = rsi_m15_norm * rsi_h1_norm
+            features['rsi_h1_x_rsi_h4'] = rsi_h1_norm * rsi_h4_norm
+            features['adx_m15_x_adx_h4'] = adx_m15_norm * adx_h4_norm
+        
+        # Derived features
+        features['rsi_avg'] = (rsi_m15 + rsi_h1 + rsi_h4) / 3
+        features['rsi_std'] = np.std([rsi_m15, rsi_h1, rsi_h4])
+        features['rsi_range'] = max(rsi_m15, rsi_h1, rsi_h4) - min(rsi_m15, rsi_h1, rsi_h4)
+        features['adx_avg'] = (adx_m15 + adx_h4) / 2
+        
+        # Distance from extremes (overbought/oversold)
+        features['rsi_m15_dist_30'] = abs(rsi_m15 - 30) / 100  # Distance from oversold
+        features['rsi_m15_dist_70'] = abs(rsi_m15 - 70) / 100  # Distance from overbought
+        features['rsi_m15_dist_50'] = abs(rsi_m15 - 50) / 100  # Distance from neutral
+        
+        # Trend alignment score
+        if data.get('main_trend', 0) == 1:  # Bullish
+            features['trend_alignment'] = (100 - rsi_m15) / 100  # Lower RSI = better buy
+        elif data.get('main_trend', 0) == -1:  # Bearish
+            features['trend_alignment'] = rsi_m15 / 100  # Higher RSI = better sell
+        else:
+            features['trend_alignment'] = 0.5
+        
+        # Momentum features
+        features['rsi_momentum'] = rsi_m15 - rsi_h1  # Short vs medium term
+        features['rsi_acceleration'] = (rsi_m15 - rsi_h1) - (rsi_h1 - rsi_h4)  # Rate of change
+        
+        # ADX trend strength category
+        if adx_m15 >= 40:
+            features['adx_category'] = 1.0  # Strong trend
+        elif adx_m15 >= 25:
+            features['adx_category'] = 0.5  # Moderate trend
+        else:
+            features['adx_category'] = 0.0  # Weak/no trend
+        
+        return features
+
+    def get_feature_vector(self, data: Dict[str, float], 
+                          feature_names: List[str] = None) -> np.ndarray:
+        """
+        Get feature vector for model input.
+        
+        Args:
+            data: Raw indicator data
+            feature_names: List of feature names to include (in order)
+            
+        Returns:
+            numpy array of features
+        """
+        features = self.generate(data)
+        
+        if feature_names is None:
+            feature_names = [
+                'rsi_m15', 'rsi_h1', 'rsi_h4',
+                'adx_m15', 'adx_h4',
+                'rsi_m15_sq', 'rsi_h1_sq', 
+                'rsi_m15_x_adx_m15', 'rsi_h1_x_adx_h4',
+                'rsi_avg', 'rsi_std', 'rsi_range',
+                'trend_alignment', 'rsi_momentum',
+                'adx_category'
+            ]
+        
+        return np.array([features.get(name, 0) for name in feature_names])
 
 # ======================================================================
 
@@ -906,101 +906,101 @@ include_interactions=PHASE2_CONFIG['polynomial_interactions']
 # ======================================================================
 
 class SentimentReader:
-"""
-Đọc sentiment từ JSON file (được tạo bởi News_Sentiment_Worker.py)
-VADER-based, chạy CPU, không cần GPU.
-"""
+    """
+    Đọc sentiment từ JSON file (được tạo bởi News_Sentiment_Worker.py)
+    VADER-based, chạy CPU, không cần GPU.
+    """
 
-def __init__(self, sentiment_file: str = "./bodhi_data/market_sentiment.json"):
-    self.sentiment_file = sentiment_file
-    self.cache = {
-        'score': 0.0,
-        'status': 'NEUTRAL',
-        'last_update': None,
-        'news_count': 0
-    }
-    self.cache_time = None
-    self.cache_ttl = 60  # Cache 60 seconds
+    def __init__(self, sentiment_file: str = "./bodhi_data/market_sentiment.json"):
+        self.sentiment_file = sentiment_file
+        self.cache = {
+            'score': 0.0,
+            'status': 'NEUTRAL',
+            'last_update': None,
+            'news_count': 0
+        }
+        self.cache_time = None
+        self.cache_ttl = 60  # Cache 60 seconds
 
-def get_sentiment(self) -> Dict:
-    """
-    Đọc sentiment hiện tại.
-    Returns: {'score': float, 'status': str, 'last_update': str}
-    """
-    now = datetime.now()
-    
-    # Check cache
-    if self.cache_time and (now - self.cache_time).seconds < self.cache_ttl:
-        return self.cache
-    
-    try:
-        if os.path.exists(self.sentiment_file):
-            with open(self.sentiment_file, 'r') as f:
-                data = json.load(f)
-                self.cache = {
-                    'score': float(data.get('score', 0.0)),
-                    'status': data.get('status', 'NEUTRAL'),
-                    'last_update': data.get('last_update'),
-                    'news_count': data.get('news_count', 0),
-                    'top_news': data.get('top_news', [])[:3]
-                }
-                self.cache_time = now
-                
-                # Check if data is stale (> 1 hour old)
-                if self.cache['last_update']:
-                    try:
-                        update_time = datetime.fromisoformat(self.cache['last_update'])
-                        if (now - update_time).seconds > 3600:
-                            self.cache['status'] = 'STALE'
-                            pass  # logger.warning("[SENTIMENT] Data is stale (>1h old)")
-                    except:
-                        pass
-    except Exception as e:
-        pass  # logger.warning(f"[SENTIMENT] Error reading file: {e}")
-    
-    return self.cache
-
-def get_sentiment_bias(self) -> float:
-    """
-    Trả về sentiment bias cho trading decision.
-    Returns: -1.0 (very bearish) to +1.0 (very bullish)
-    """
-    sentiment = self.get_sentiment()
-    return sentiment.get('score', 0.0)
-
-def should_trade_with_sentiment(self, signal: int) -> Tuple[bool, float]:
-    """
-    Kiểm tra signal có phù hợp với sentiment không.
-    
-    Args:
-        signal: 1 (BUY), -1 (SELL), 0 (HOLD)
+    def get_sentiment(self) -> Dict:
+        """
+        Đọc sentiment hiện tại.
+        Returns: {'score': float, 'status': str, 'last_update': str}
+        """
+        now = datetime.now()
         
-    Returns:
-        (should_trade, confidence_multiplier)
-    """
-    sentiment = self.get_sentiment()
-    score = sentiment.get('score', 0.0)
-    status = sentiment.get('status', 'NEUTRAL')
-    
-    # NEUTRAL sentiment = no adjustment
-    if status == 'NEUTRAL' or status == 'STALE':
+        # Check cache
+        if self.cache_time and (now - self.cache_time).seconds < self.cache_ttl:
+            return self.cache
+        
+        try:
+            if os.path.exists(self.sentiment_file):
+                with open(self.sentiment_file, 'r') as f:
+                    data = json.load(f)
+                    self.cache = {
+                        'score': float(data.get('score', 0.0)),
+                        'status': data.get('status', 'NEUTRAL'),
+                        'last_update': data.get('last_update'),
+                        'news_count': data.get('news_count', 0),
+                        'top_news': data.get('top_news', [])[:3]
+                    }
+                    self.cache_time = now
+                    
+                    # Check if data is stale (> 1 hour old)
+                    if self.cache['last_update']:
+                        try:
+                            update_time = datetime.fromisoformat(self.cache['last_update'])
+                            if (now - update_time).seconds > 3600:
+                                self.cache['status'] = 'STALE'
+                                pass  # logger.warning("[SENTIMENT] Data is stale (>1h old)")
+                        except:
+                            pass
+        except Exception as e:
+            pass  # logger.warning(f"[SENTIMENT] Error reading file: {e}")
+        
+        return self.cache
+
+    def get_sentiment_bias(self) -> float:
+        """
+        Trả về sentiment bias cho trading decision.
+        Returns: -1.0 (very bearish) to +1.0 (very bullish)
+        """
+        sentiment = self.get_sentiment()
+        return sentiment.get('score', 0.0)
+
+    def should_trade_with_sentiment(self, signal: int) -> Tuple[bool, float]:
+        """
+        Kiểm tra signal có phù hợp với sentiment không.
+        
+        Args:
+            signal: 1 (BUY), -1 (SELL), 0 (HOLD)
+            
+        Returns:
+            (should_trade, confidence_multiplier)
+        """
+        sentiment = self.get_sentiment()
+        score = sentiment.get('score', 0.0)
+        status = sentiment.get('status', 'NEUTRAL')
+        
+        # NEUTRAL sentiment = no adjustment
+        if status == 'NEUTRAL' or status == 'STALE':
+            return True, 1.0
+        
+        # BUY signal
+        if signal == 1:
+            if status == 'BULLISH':
+                return True, 1.2  # Boost confidence
+            elif status == 'BEARISH':
+                return True, 0.7  # Reduce confidence (but still trade)
+        
+        # SELL signal
+        elif signal == -1:
+            if status == 'BEARISH':
+                return True, 1.2  # Boost confidence
+            elif status == 'BULLISH':
+                return True, 0.7  # Reduce confidence
+        
         return True, 1.0
-    
-    # BUY signal
-    if signal == 1:
-        if status == 'BULLISH':
-            return True, 1.2  # Boost confidence
-        elif status == 'BEARISH':
-            return True, 0.7  # Reduce confidence (but still trade)
-    
-    # SELL signal
-    elif signal == -1:
-        if status == 'BEARISH':
-            return True, 1.2  # Boost confidence
-        elif status == 'BULLISH':
-            return True, 0.7  # Reduce confidence
-    
-    return True, 1.0
 
 # ======================================================================
 
@@ -1009,77 +1009,77 @@ def should_trade_with_sentiment(self, signal: int) -> Tuple[bool, float]:
 # ======================================================================
 
 class KellyCriterion:
-"""
-Kelly Criterion cho dynamic lot sizing.
-f* = (p * b - q) / b
-
-Trong đó:
-- p = probability of winning (từ Meta-Labeler)
-- q = probability of losing (1 - p)
-- b = win/loss ratio (reward/risk)
-"""
-
-def __init__(self, max_kelly_fraction: float = 0.5, min_kelly_fraction: float = 0.1):
     """
-    Args:
-        max_kelly_fraction: Giới hạn tối đa Kelly (0.5 = Half Kelly)
-        min_kelly_fraction: Giới hạn tối thiểu
-    """
-    self.max_fraction = max_kelly_fraction
-    self.min_fraction = min_kelly_fraction
+    Kelly Criterion cho dynamic lot sizing.
+    f* = (p * b - q) / b
 
-def calculate(self, win_probability: float, reward_risk_ratio: float) -> Dict:
+    Trong đó:
+    - p = probability of winning (từ Meta-Labeler)
+    - q = probability of losing (1 - p)
+    - b = win/loss ratio (reward/risk)
     """
-    Tính Kelly fraction.
-    
-    Args:
-        win_probability: Xác suất thắng (0.0 - 1.0)
-        reward_risk_ratio: Tỷ lệ reward/risk (TP/SL)
+
+    def __init__(self, max_kelly_fraction: float = 0.5, min_kelly_fraction: float = 0.1):
+        """
+        Args:
+            max_kelly_fraction: Giới hạn tối đa Kelly (0.5 = Half Kelly)
+            min_kelly_fraction: Giới hạn tối thiểu
+        """
+        self.max_fraction = max_kelly_fraction
+        self.min_fraction = min_kelly_fraction
+
+    def calculate(self, win_probability: float, reward_risk_ratio: float) -> Dict:
+        """
+        Tính Kelly fraction.
         
-    Returns:
-        Dict với kelly_fraction, lot_multiplier, recommendation
-    """
-    p = max(0.01, min(0.99, win_probability))  # Clamp to valid range
-    q = 1 - p
-    b = max(0.1, reward_risk_ratio)  # Avoid division by zero
-    
-    # Kelly Formula: f* = (p * b - q) / b
-    kelly_raw = (p * b - q) / b
-    
-    # Clamp to safe range
-    kelly_fraction = max(self.min_fraction, min(self.max_fraction, kelly_raw))
-    
-    # Negative Kelly = don't trade
-    if kelly_raw <= 0:
+        Args:
+            win_probability: Xác suất thắng (0.0 - 1.0)
+            reward_risk_ratio: Tỷ lệ reward/risk (TP/SL)
+            
+        Returns:
+            Dict với kelly_fraction, lot_multiplier, recommendation
+        """
+        p = max(0.01, min(0.99, win_probability))  # Clamp to valid range
+        q = 1 - p
+        b = max(0.1, reward_risk_ratio)  # Avoid division by zero
+        
+        # Kelly Formula: f* = (p * b - q) / b
+        kelly_raw = (p * b - q) / b
+        
+        # Clamp to safe range
+        kelly_fraction = max(self.min_fraction, min(self.max_fraction, kelly_raw))
+        
+        # Negative Kelly = don't trade
+        if kelly_raw <= 0:
+            return {
+                'kelly_raw': round(kelly_raw, 4),
+                'kelly_fraction': 0,
+                'lot_multiplier': 0,
+                'recommendation': 'NO_TRADE',
+                'reason': 'Negative edge - expected loss'
+            }
+        
+        # Lot multiplier (1.0 = full position at Half Kelly)
+        lot_multiplier = kelly_fraction / self.max_fraction
+        
+        # Recommendation
+        if kelly_fraction >= 0.4:
+            recommendation = 'STRONG'
+        elif kelly_fraction >= 0.25:
+            recommendation = 'NORMAL'
+        elif kelly_fraction >= 0.15:
+            recommendation = 'REDUCED'
+        else:
+            recommendation = 'MINIMAL'
+        
         return {
             'kelly_raw': round(kelly_raw, 4),
-            'kelly_fraction': 0,
-            'lot_multiplier': 0,
-            'recommendation': 'NO_TRADE',
-            'reason': 'Negative edge - expected loss'
+            'kelly_fraction': round(kelly_fraction, 4),
+            'lot_multiplier': round(lot_multiplier, 3),
+            'recommendation': recommendation,
+            'win_prob': round(p, 3),
+            'rr_ratio': round(b, 2)
         }
-    
-    # Lot multiplier (1.0 = full position at Half Kelly)
-    lot_multiplier = kelly_fraction / self.max_fraction
-    
-    # Recommendation
-    if kelly_fraction >= 0.4:
-        recommendation = 'STRONG'
-    elif kelly_fraction >= 0.25:
-        recommendation = 'NORMAL'
-    elif kelly_fraction >= 0.15:
-        recommendation = 'REDUCED'
-    else:
-        recommendation = 'MINIMAL'
-    
-    return {
-        'kelly_raw': round(kelly_raw, 4),
-        'kelly_fraction': round(kelly_fraction, 4),
-        'lot_multiplier': round(lot_multiplier, 3),
-        'recommendation': recommendation,
-        'win_prob': round(p, 3),
-        'rr_ratio': round(b, 2)
-    }
 
 # ======================================================================
 
