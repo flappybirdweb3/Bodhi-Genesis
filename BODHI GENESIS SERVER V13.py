@@ -2046,213 +2046,213 @@ if XGBOOST_AVAILABLE:
 
         def __init__(self, data_logger, models_dir='models', min_records=1000, 
                      min_accuracy=0.65, improvement_threshold=0.02):
-        self.data_logger = data_logger
-        self.models_dir = models_dir
-        self.min_records = min_records
-        self.min_accuracy = min_accuracy
-        self.improvement_threshold = improvement_threshold
+            self.data_logger = data_logger
+            self.models_dir = models_dir
+            self.min_records = min_records
+            self.min_accuracy = min_accuracy
+            self.improvement_threshold = improvement_threshold
+            
+            self.lock = Lock()
+            self.last_retrain = None
+            self.retrain_count = 0
+            
+            self.meta_model_path = os.path.join(models_dir, 'meta_labeler_real.pkl')
+            self.backup_dir = os.path.join(models_dir, 'backups')
+            os.makedirs(self.backup_dir, exist_ok=True)
+            
+            logger.info(f"[RETRAIN] Initialized (min={min_records}, acc={min_accuracy:.0%})")
         
-        self.lock = Lock()
-        self.last_retrain = None
-        self.retrain_count = 0
+        def get_status(self):
+            trade_count = self.data_logger.get_trade_count()
+            return {
+                'last_retrain': self.last_retrain.isoformat() if self.last_retrain else None,
+                'retrain_count': self.retrain_count,
+                'trade_records': trade_count,
+                'min_records_required': self.min_records,
+                'ready_to_retrain': trade_count >= self.min_records,
+                'model_exists': os.path.exists(self.meta_model_path)
+            }
         
-        self.meta_model_path = os.path.join(models_dir, 'meta_labeler_real.pkl')
-        self.backup_dir = os.path.join(models_dir, 'backups')
-        os.makedirs(self.backup_dir, exist_ok=True)
-        
-        logger.info(f"[RETRAIN] Initialized (min={min_records}, acc={min_accuracy:.0%})")
-    
-    def get_status(self):
-        trade_count = self.data_logger.get_trade_count()
-        return {
-            'last_retrain': self.last_retrain.isoformat() if self.last_retrain else None,
-            'retrain_count': self.retrain_count,
-            'trade_records': trade_count,
-            'min_records_required': self.min_records,
-            'ready_to_retrain': trade_count >= self.min_records,
-            'model_exists': os.path.exists(self.meta_model_path)
-        }
-    
-    def should_retrain(self):
-        """Check if should retrain (Sunday 6-7 AM)"""
-        trade_count = self.data_logger.get_trade_count()
-        if trade_count < self.min_records:
+        def should_retrain(self):
+            """Check if should retrain (Sunday 6-7 AM)"""
+            trade_count = self.data_logger.get_trade_count()
+            if trade_count < self.min_records:
+                return False
+            
+            now = datetime.now()
+            if now.weekday() == 6 and 6 <= now.hour < 7:
+                if self.last_retrain and self.last_retrain.date() == now.date():
+                    return False
+                return True
+            
             return False
         
-        now = datetime.now()
-        if now.weekday() == 6 and 6 <= now.hour < 7:
-            if self.last_retrain and self.last_retrain.date() == now.date():
-                return False
-            return True
-        
-        return False
-    
-    def retrain(self):
-        """Execute complete retrain workflow"""
-        with self.lock:
-            result = {
-                'success': False,
-                'message': '',
-                'old_accuracy': None,
-                'new_accuracy': None,
-                'deployed': False
-            }
-            
-            try:
-                trade_count = self.data_logger.get_trade_count()
-                if trade_count < self.min_records:
-                    result['message'] = f"Not enough data: {trade_count}/{self.min_records}"
-                    return result
-                
-                logger.info(f"[RETRAIN] Starting with {trade_count} records...")
-                
-                # Load trades
-                df = pd.read_csv(self.data_logger.trades_file)
-                df = df.dropna(subset=['profit_pips', 'ensemble_signal', 'meta_probability'])
-                
-                # Prepare features
-                y = (df['profit_pips'] > 0).astype(int).values
-                X = np.column_stack([
-                    df['ensemble_signal'].fillna(0.5).values,
-                    df['meta_probability'].fillna(0.5).values,
-                    df['had_consensus'].fillna(0).astype(int).values,
-                    df['is_clean'].fillna(1).astype(int).values,
-                    df['karma_before'].fillna(50).values / 100.0
-                ])
-                
-                # Split
-                X_train, X_val, y_train, y_val = train_test_split(
-                    X, y, test_size=0.2, random_state=42, stratify=y
-                )
-                
-                # Evaluate old model
-                old_accuracy = 0.5
-                if os.path.exists(self.meta_model_path):
-                    old_model = joblib.load(self.meta_model_path)
-                    y_pred = old_model.predict(X_val)
-                    old_accuracy = accuracy_score(y_val, y_pred)
-                
-                result['old_accuracy'] = old_accuracy
-                logger.info(f"[RETRAIN] Old accuracy: {old_accuracy:.2%}")
-                
-                # Train new model
-                params = {
-                    'objective': 'binary:logistic',
-                    'max_depth': 3,
-                    'learning_rate': 0.1,
-                    'n_estimators': 100,
-                    'random_state': 42,
-                    'n_jobs': -1
+        def retrain(self):
+            """Execute complete retrain workflow"""
+            with self.lock:
+                result = {
+                    'success': False,
+                    'message': '',
+                    'old_accuracy': None,
+                    'new_accuracy': None,
+                    'deployed': False
                 }
-                new_model = xgb.XGBClassifier(**params)
-                new_model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
                 
-                # Evaluate new model
-                y_pred = new_model.predict(X_val)
-                new_accuracy = accuracy_score(y_val, y_pred)
-                result['new_accuracy'] = new_accuracy
-                logger.info(f"[RETRAIN] New accuracy: {new_accuracy:.2%}")
-                
-                # Check if should deploy
-                improvement = new_accuracy - old_accuracy
-                should_deploy = (
-                    new_accuracy >= self.min_accuracy and
-                    improvement >= self.improvement_threshold
-                )
-                
-                if should_deploy:
-                    # Backup old model
+                try:
+                    trade_count = self.data_logger.get_trade_count()
+                    if trade_count < self.min_records:
+                        result['message'] = f"Not enough data: {trade_count}/{self.min_records}"
+                        return result
+                    
+                    logger.info(f"[RETRAIN] Starting with {trade_count} records...")
+                    
+                    # Load trades
+                    df = pd.read_csv(self.data_logger.trades_file)
+                    df = df.dropna(subset=['profit_pips', 'ensemble_signal', 'meta_probability'])
+                    
+                    # Prepare features
+                    y = (df['profit_pips'] > 0).astype(int).values
+                    X = np.column_stack([
+                        df['ensemble_signal'].fillna(0.5).values,
+                        df['meta_probability'].fillna(0.5).values,
+                        df['had_consensus'].fillna(0).astype(int).values,
+                        df['is_clean'].fillna(1).astype(int).values,
+                        df['karma_before'].fillna(50).values / 100.0
+                    ])
+                    
+                    # Split
+                    X_train, X_val, y_train, y_val = train_test_split(
+                        X, y, test_size=0.2, random_state=42, stratify=y
+                    )
+                    
+                    # Evaluate old model
+                    old_accuracy = 0.5
                     if os.path.exists(self.meta_model_path):
-                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                        backup_path = os.path.join(
-                            self.backup_dir,
-                            f'meta_labeler_backup_{timestamp}.pkl'
-                        )
-                        shutil.copy2(self.meta_model_path, backup_path)
-                        logger.info(f"[RETRAIN] Backed up to: {backup_path}")
+                        old_model = joblib.load(self.meta_model_path)
+                        y_pred = old_model.predict(X_val)
+                        old_accuracy = accuracy_score(y_val, y_pred)
                     
-                    # Deploy new model
-                    joblib.dump(new_model, self.meta_model_path)
-                    logger.info(f"[RETRAIN] Deployed new model")
+                    result['old_accuracy'] = old_accuracy
+                    logger.info(f"[RETRAIN] Old accuracy: {old_accuracy:.2%}")
                     
-                    result['success'] = True
-                    result['deployed'] = True
-                    result['message'] = f"✅ Retrain successful! {old_accuracy:.2%} → {new_accuracy:.2%}"
+                    # Train new model
+                    params = {
+                        'objective': 'binary:logistic',
+                        'max_depth': 3,
+                        'learning_rate': 0.1,
+                        'n_estimators': 100,
+                        'random_state': 42,
+                        'n_jobs': -1
+                    }
+                    new_model = xgb.XGBClassifier(**params)
+                    new_model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
                     
-                    self.last_retrain = datetime.now()
-                    self.retrain_count += 1
-                else:
-                    result['message'] = f"❌ Not deployed. Acc: {new_accuracy:.2%}, Need +{self.improvement_threshold:.0%}"
-                
-                logger.info(f"[RETRAIN] {result['message']}")
-                return result
-                
-            except Exception as e:
-                result['message'] = f"❌ Error: {str(e)}"
-                logger.error(f"[RETRAIN] {result['message']}", exc_info=True)
-                return result
-    
-    def manual_retrain(self):
-        """Manually trigger retrain"""
-        logger.info("[RETRAIN] Manual retrain triggered")
-        return self.retrain()
-
-class RetrainScheduler:
-    """Background scheduler for auto-retrain"""
-    
-    def __init__(self, retrain_engine, check_interval=3600):
-        self.retrain_engine = retrain_engine
-        self.check_interval = check_interval
-        self.running = False
-        self.thread = None
-    
-    def start(self):
-        if self.running:
-            return
+                    # Evaluate new model
+                    y_pred = new_model.predict(X_val)
+                    new_accuracy = accuracy_score(y_val, y_pred)
+                    result['new_accuracy'] = new_accuracy
+                    logger.info(f"[RETRAIN] New accuracy: {new_accuracy:.2%}")
+                    
+                    # Check if should deploy
+                    improvement = new_accuracy - old_accuracy
+                    should_deploy = (
+                        new_accuracy >= self.min_accuracy and
+                        improvement >= self.improvement_threshold
+                    )
+                    
+                    if should_deploy:
+                        # Backup old model
+                        if os.path.exists(self.meta_model_path):
+                            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                            backup_path = os.path.join(
+                                self.backup_dir,
+                                f'meta_labeler_backup_{timestamp}.pkl'
+                            )
+                            shutil.copy2(self.meta_model_path, backup_path)
+                            logger.info(f"[RETRAIN] Backed up to: {backup_path}")
+                        
+                        # Deploy new model
+                        joblib.dump(new_model, self.meta_model_path)
+                        logger.info(f"[RETRAIN] Deployed new model")
+                        
+                        result['success'] = True
+                        result['deployed'] = True
+                        result['message'] = f"✅ Retrain successful! {old_accuracy:.2%} → {new_accuracy:.2%}"
+                        
+                        self.last_retrain = datetime.now()
+                        self.retrain_count += 1
+                    else:
+                        result['message'] = f"❌ Not deployed. Acc: {new_accuracy:.2%}, Need +{self.improvement_threshold:.0%}"
+                    
+                    logger.info(f"[RETRAIN] {result['message']}")
+                    return result
+                    
+                except Exception as e:
+                    result['message'] = f"❌ Error: {str(e)}"
+                    logger.error(f"[RETRAIN] {result['message']}", exc_info=True)
+                    return result
         
-        self.running = True
-        self.thread = threading.Thread(target=self._run, daemon=True)
-        self.thread.start()
-        logger.info(f"[SCHEDULER] Started (check every {self.check_interval}s)")
-    
-    def stop(self):
-        self.running = False
-        if self.thread:
-            self.thread.join(timeout=5)
-        logger.info("[SCHEDULER] Stopped")
-    
-    def _run(self):
-        while self.running:
-            try:
-                if self.retrain_engine.should_retrain():
-                    logger.info("[SCHEDULER] Triggering scheduled retrain...")
-                    result = self.retrain_engine.retrain()
-                    logger.info(f"[SCHEDULER] {result['message']}")
-                
-                time_module.sleep(self.check_interval)
-                
-            except Exception as e:
-                logger.error(f"[SCHEDULER] Error: {e}")
-                time_module.sleep(self.check_interval)
+        def manual_retrain(self):
+            """Manually trigger retrain"""
+            logger.info("[RETRAIN] Manual retrain triggered")
+            return self.retrain()
 
-logger.info("✅ Retrain engine classes loaded")
+    class RetrainScheduler:
+        """Background scheduler for auto-retrain"""
+        
+        def __init__(self, retrain_engine, check_interval=3600):
+            self.retrain_engine = retrain_engine
+            self.check_interval = check_interval
+            self.running = False
+            self.thread = None
+        
+        def start(self):
+            if self.running:
+                return
+            
+            self.running = True
+            self.thread = threading.Thread(target=self._run, daemon=True)
+            self.thread.start()
+            logger.info(f"[SCHEDULER] Started (check every {self.check_interval}s)")
+        
+        def stop(self):
+            self.running = False
+            if self.thread:
+                self.thread.join(timeout=5)
+            logger.info("[SCHEDULER] Stopped")
+        
+        def _run(self):
+            while self.running:
+                try:
+                    if self.retrain_engine.should_retrain():
+                        logger.info("[SCHEDULER] Triggering scheduled retrain...")
+                        result = self.retrain_engine.retrain()
+                        logger.info(f"[SCHEDULER] {result['message']}")
+                    
+                    time_module.sleep(self.check_interval)
+                    
+                except Exception as e:
+                    logger.error(f"[SCHEDULER] Error: {e}")
+                    time_module.sleep(self.check_interval)
+
+    logger.info("✅ Retrain engine classes loaded")
 
 else:
-class RetrainEngine:
-def __init__(self, *args, **kwargs):
-pass
-def get_status(self):
-return {'error': 'XGBoost not installed'}
-def manual_retrain(self):
-return {'success': False, 'message': 'XGBoost not installed'}
+    class RetrainEngine:
+        def __init__(self, *args, **kwargs):
+            pass
+        def get_status(self):
+            return {'error': 'XGBoost not installed'}
+        def manual_retrain(self):
+            return {'success': False, 'message': 'XGBoost not installed'}
 
-class RetrainScheduler:
-    def __init__(self, *args, **kwargs):
-        pass
-    def start(self):
-        pass
-    def stop(self):
-        pass
+    class RetrainScheduler:
+        def __init__(self, *args, **kwargs):
+            pass
+        def start(self):
+            pass
+        def stop(self):
+            pass
 
 # ======================================================================
 
@@ -2261,125 +2261,125 @@ class RetrainScheduler:
 # ======================================================================
 
 class KarmaEngine:
-"""Nhân Quả Báo Ứng - Karma System"""
+    """Nhân Quả Báo Ứng - Karma System"""
 
-def __init__(self, data_dir=DATA_DIR):
-    self.data_dir = data_dir
-    self.karma_file = os.path.join(data_dir, 'karma_v12.json')
-    self.karma = {s: {
-        'points': 0, 'trades': 0, 'wins': 0, 'losses': 0,
-        'consecutive_losses': 0, 'last_loss_time': None,
-        'total_pips': 0, 'best_streak': 0, 'current_streak': 0
-    } for s in SYMBOLS}
-    self.lock = Lock()
-    self._load()
+    def __init__(self, data_dir=DATA_DIR):
+        self.data_dir = data_dir
+        self.karma_file = os.path.join(data_dir, 'karma_v12.json')
+        self.karma = {s: {
+            'points': 0, 'trades': 0, 'wins': 0, 'losses': 0,
+            'consecutive_losses': 0, 'last_loss_time': None,
+            'total_pips': 0, 'best_streak': 0, 'current_streak': 0
+        } for s in SYMBOLS}
+        self.lock = Lock()
+        self._load()
 
-def _load(self):
-    """Load karma from file"""
-    try:
-        if os.path.exists(self.karma_file):
-            with open(self.karma_file, 'r') as f:
-                saved = json.load(f)
-                for s in SYMBOLS:
-                    if s in saved:
-                        self.karma[s].update(saved[s])
-            logger.info(f"[KARMA] Loaded karma from {self.karma_file}")
-    except Exception as e:
-        logger.warning(f"[KARMA] Load error: {e}")
+    def _load(self):
+        """Load karma from file"""
+        try:
+            if os.path.exists(self.karma_file):
+                with open(self.karma_file, 'r') as f:
+                    saved = json.load(f)
+                    for s in SYMBOLS:
+                        if s in saved:
+                            self.karma[s].update(saved[s])
+                logger.info(f"[KARMA] Loaded karma from {self.karma_file}")
+        except Exception as e:
+            logger.warning(f"[KARMA] Load error: {e}")
 
-def _save(self):
-    """Save karma to file"""
-    try:
-        with open(self.karma_file, 'w') as f:
-            json.dump(self.karma, f, indent=2, default=str)
-    except Exception as e:
-        logger.error(f"[KARMA] Save error: {e}")
+    def _save(self):
+        """Save karma to file"""
+        try:
+            with open(self.karma_file, 'w') as f:
+                json.dump(self.karma, f, indent=2, default=str)
+        except Exception as e:
+            logger.error(f"[KARMA] Save error: {e}")
 
-def get_karma(self, symbol: str) -> dict:
-    s = normalize_symbol(symbol)
-    k = self.karma.get(s, {'points': 0})
-    level, mult = self.get_level(k.get('points', 0))
-    return {**k, 'level': level, 'lot_multiplier': mult}
+    def get_karma(self, symbol: str) -> dict:
+        s = normalize_symbol(symbol)
+        k = self.karma.get(s, {'points': 0})
+        level, mult = self.get_level(k.get('points', 0))
+        return {**k, 'level': level, 'lot_multiplier': mult}
 
-def get_all_karma(self) -> dict:
-    return {s: self.get_karma(s) for s in SYMBOLS}
+    def get_all_karma(self) -> dict:
+        return {s: self.get_karma(s) for s in SYMBOLS}
 
-def get_level(self, points: int) -> tuple:
-    for name, cfg in KARMA_LEVELS.items():
-        if points >= cfg['min']:
-            return name, cfg['mult']
-    return 'SAMSARA', 0.5
+    def get_level(self, points: int) -> tuple:
+        for name, cfg in KARMA_LEVELS.items():
+            if points >= cfg['min']:
+                return name, cfg['mult']
+        return 'SAMSARA', 0.5
 
-def process_trade(self, data: dict) -> dict:
-    """Process trade and update karma"""
-    with self.lock:
-        s = normalize_symbol(data.get('symbol', 'EURUSD'))
-        k = self.karma[s]
-        
-        profit_pips = data.get('profit_pips', 0)
-        is_clean = data.get('is_clean', True)
-        
-        karma_before = k['points']
-        k['trades'] += 1
-        k['total_pips'] += profit_pips
-        
-        if profit_pips > 0:
-            k['wins'] += 1
+    def process_trade(self, data: dict) -> dict:
+        """Process trade and update karma"""
+        with self.lock:
+            s = normalize_symbol(data.get('symbol', 'EURUSD'))
+            k = self.karma[s]
+
+            profit_pips = data.get('profit_pips', 0)
+            is_clean = data.get('is_clean', True)
+
+            karma_before = k['points']
+            k['trades'] += 1
+            k['total_pips'] += profit_pips
+
+            if profit_pips > 0:
+                k['wins'] += 1
+                k['consecutive_losses'] = 0
+                k['current_streak'] += 1
+                k['best_streak'] = max(k['best_streak'], k['current_streak'])
+
+                # Karma gain
+                gain = min(profit_pips / 10, 5)
+                if is_clean:
+                    gain *= 1.5
+                k['points'] += gain
+            else:
+                k['losses'] += 1
+                k['consecutive_losses'] += 1
+                k['current_streak'] = 0
+                k['last_loss_time'] = datetime.now().isoformat()
+
+                # Karma loss
+                loss = min(abs(profit_pips) / 5, 10)
+                if not is_clean:
+                    loss *= 1.5
+                k['points'] -= loss
+
+            level, mult = self.get_level(k['points'])
+
+            self._save()
+
+            return {
+                'symbol': s,
+                'karma_before': karma_before,
+                'karma_after': k['points'],
+                'change': k['points'] - karma_before,
+                'level': level,
+                'lot_multiplier': mult,
+                'consecutive_losses': k['consecutive_losses'],
+                'win_rate': k['wins'] / k['trades'] * 100 if k['trades'] > 0 else 0
+            }
+
+    def should_cooldown(self, symbol: str) -> tuple:
+        """Check if symbol should be in cooldown"""
+        s = normalize_symbol(symbol)
+        k = self.karma.get(s, {})
+
+        if k.get('consecutive_losses', 0) >= V6_CONFIG['max_consecutive_losses']:
+            last_loss = k.get('last_loss_time')
+            if last_loss:
+                try:
+                    last_loss_dt = datetime.fromisoformat(last_loss)
+                    cooldown_until = last_loss_dt + timedelta(hours=V6_CONFIG['cooldown_hours'])
+                    if datetime.now() < cooldown_until:
+                        return True, f"Cooldown until {cooldown_until.strftime('%H:%M')}"
+                except:
+                    pass
             k['consecutive_losses'] = 0
-            k['current_streak'] += 1
-            k['best_streak'] = max(k['best_streak'], k['current_streak'])
-            
-            # Karma gain
-            gain = min(profit_pips / 10, 5)
-            if is_clean:
-                gain *= 1.5
-            k['points'] += gain
-        else:
-            k['losses'] += 1
-            k['consecutive_losses'] += 1
-            k['current_streak'] = 0
-            k['last_loss_time'] = datetime.now().isoformat()
-            
-            # Karma loss
-            loss = min(abs(profit_pips) / 5, 10)
-            if not is_clean:
-                loss *= 1.5
-            k['points'] -= loss
-        
-        level, mult = self.get_level(k['points'])
-        
-        self._save()
-        
-        return {
-            'symbol': s,
-            'karma_before': karma_before,
-            'karma_after': k['points'],
-            'change': k['points'] - karma_before,
-            'level': level,
-            'lot_multiplier': mult,
-            'consecutive_losses': k['consecutive_losses'],
-            'win_rate': k['wins'] / k['trades'] * 100 if k['trades'] > 0 else 0
-        }
+            self._save()
 
-def should_cooldown(self, symbol: str) -> tuple:
-    """Check if symbol should be in cooldown"""
-    s = normalize_symbol(symbol)
-    k = self.karma.get(s, {})
-    
-    if k.get('consecutive_losses', 0) >= V6_CONFIG['max_consecutive_losses']:
-        last_loss = k.get('last_loss_time')
-        if last_loss:
-            try:
-                last_loss_dt = datetime.fromisoformat(last_loss)
-                cooldown_until = last_loss_dt + timedelta(hours=V6_CONFIG['cooldown_hours'])
-                if datetime.now() < cooldown_until:
-                    return True, f"Cooldown until {cooldown_until.strftime('%H:%M')}"
-            except:
-                pass
-        k['consecutive_losses'] = 0
-        self._save()
-    
-    return False, ""
+        return False, ""
 
 # ======================================================================
 
@@ -2388,112 +2388,112 @@ def should_cooldown(self, symbol: str) -> tuple:
 # ======================================================================
 
 class PPORiskEngine:
-"""PPO Risk Engine - Validates signals with Trung Đạo"""
+    """PPO Risk Engine - Validates signals with Trung Đạo"""
 
-def __init__(self, models_dir=MODELS_DIR):
-    self.models_dir = models_dir
-    self.model = None
-    self.model_loaded = False
-    self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') if TORCH_AVAILABLE else None
-    
-    self.config = {
-        'max_trades_per_day': 10,
-        'max_drawdown_atr': 1.5,
-        'min_adx_trend': 20,
-        'min_confidence': 60,
-        'karma_threshold': -10,
-    }
-    
-    self._load_model()
+    def __init__(self, models_dir=MODELS_DIR):
+        self.models_dir = models_dir
+        self.model = None
+        self.model_loaded = False
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') if TORCH_AVAILABLE else None
 
-def _load_model(self):
-    if not TORCH_AVAILABLE:
-        return
-    
-    model_path = os.path.join(self.models_dir, 'ppo_best.pt')
-    if os.path.exists(model_path):
-        try:
-            self.model = PPORiskValidator().to(self.device)
-            checkpoint = torch.load(model_path, map_location=self.device)
-            self.model.load_state_dict(checkpoint['policy_state_dict'])
-            self.model.eval()
-            self.model_loaded = True
-            logger.info(f"[PPO] Model loaded: {model_path}")
-        except Exception as e:
-            logger.warning(f"[PPO] Model load error: {e}")
-    else:
-        logger.info("[PPO] Model not found - using rule-based risk check")
+        self.config = {
+            'max_trades_per_day': 10,
+            'max_drawdown_atr': 1.5,
+            'min_adx_trend': 20,
+            'min_confidence': 60,
+            'karma_threshold': -10,
+        }
 
-def validate_signal(self, signal_data: dict) -> dict:
-    """Validate signal with PPO/rules"""
-    signal = signal_data.get('signal', 0)
-    confidence = signal_data.get('confidence', 50)
-    karma = signal_data.get('karma', 0)
-    trades_today = signal_data.get('trades_today', 0)
-    consecutive_losses = signal_data.get('consecutive_losses', 0)
-    adx = signal_data.get('adx_m15', 25)
-    
-    # HOLD = no risk needed
-    if signal == 0:
+        self._load_model()
+
+    def _load_model(self):
+        if not TORCH_AVAILABLE:
+            return
+
+        model_path = os.path.join(self.models_dir, 'ppo_best.pt')
+        if os.path.exists(model_path):
+            try:
+                self.model = PPORiskValidator().to(self.device)
+                checkpoint = torch.load(model_path, map_location=self.device)
+                self.model.load_state_dict(checkpoint['policy_state_dict'])
+                self.model.eval()
+                self.model_loaded = True
+                logger.info(f"[PPO] Model loaded: {model_path}")
+            except Exception as e:
+                logger.warning(f"[PPO] Model load error: {e}")
+        else:
+            logger.info("[PPO] Model not found - using rule-based risk check")
+
+    def validate_signal(self, signal_data: dict) -> dict:
+        """Validate signal with PPO/rules"""
+        signal = signal_data.get('signal', 0)
+        confidence = signal_data.get('confidence', 50)
+        karma = signal_data.get('karma', 0)
+        trades_today = signal_data.get('trades_today', 0)
+        consecutive_losses = signal_data.get('consecutive_losses', 0)
+        adx = signal_data.get('adx_m15', 25)
+
+        # HOLD = no risk needed
+        if signal == 0:
+            return {
+                'approved': True,
+                'action': 'APPROVE',
+                'lot_multiplier': 0,
+                'reason': 'HOLD signal'
+            }
+
+        # Check karma
+        if karma < self.config['karma_threshold']:
+            return {
+                'approved': False,
+                'action': 'REJECT',
+                'lot_multiplier': 0,
+                'reason': f'Karma too low: {karma}'
+            }
+
+        # Check overtrading
+        if trades_today >= self.config['max_trades_per_day']:
+            return {
+                'approved': False,
+                'action': 'REJECT',
+                'lot_multiplier': 0,
+                'reason': f'Max trades reached: {trades_today}'
+            }
+
+        # Check consecutive losses (V6: 3 loss = cooldown)
+        if consecutive_losses >= V6_CONFIG['max_consecutive_losses']:
+            return {
+                'approved': False,
+                'action': 'REJECT',
+                'lot_multiplier': 0,
+                'reason': f'Consecutive losses: {consecutive_losses}'
+            }
+
+        # Check ADX (V6: ADX > 20)
+        if adx < V6_CONFIG['adx_min']:
+            return {
+                'approved': False,
+                'action': 'REJECT',
+                'lot_multiplier': 0,
+                'reason': f'Weak trend ADX: {adx:.0f}'
+            }
+
+        # Check confidence
+        if confidence < self.config['min_confidence']:
+            return {
+                'approved': True,
+                'action': 'REDUCE',
+                'lot_multiplier': 0.5,
+                'reason': f'Low confidence: {confidence:.0f}%'
+            }
+
+        # All checks passed
         return {
             'approved': True,
             'action': 'APPROVE',
-            'lot_multiplier': 0,
-            'reason': 'HOLD signal'
+            'lot_multiplier': 1.0,
+            'reason': 'Risk OK'
         }
-    
-    # Check karma
-    if karma < self.config['karma_threshold']:
-        return {
-            'approved': False,
-            'action': 'REJECT',
-            'lot_multiplier': 0,
-            'reason': f'Karma too low: {karma}'
-        }
-    
-    # Check overtrading
-    if trades_today >= self.config['max_trades_per_day']:
-        return {
-            'approved': False,
-            'action': 'REJECT',
-            'lot_multiplier': 0,
-            'reason': f'Max trades reached: {trades_today}'
-        }
-    
-    # Check consecutive losses (V6: 3 loss = cooldown)
-    if consecutive_losses >= V6_CONFIG['max_consecutive_losses']:
-        return {
-            'approved': False,
-            'action': 'REJECT',
-            'lot_multiplier': 0,
-            'reason': f'Consecutive losses: {consecutive_losses}'
-        }
-    
-    # Check ADX (V6: ADX > 20)
-    if adx < V6_CONFIG['adx_min']:
-        return {
-            'approved': False,
-            'action': 'REJECT',
-            'lot_multiplier': 0,
-            'reason': f'Weak trend ADX: {adx:.0f}'
-        }
-    
-    # Check confidence
-    if confidence < self.config['min_confidence']:
-        return {
-            'approved': True,
-            'action': 'REDUCE',
-            'lot_multiplier': 0.5,
-            'reason': f'Low confidence: {confidence:.0f}%'
-        }
-    
-    # All checks passed
-    return {
-        'approved': True,
-        'action': 'APPROVE',
-        'lot_multiplier': 1.0,
-        'reason': 'Risk OK'
-    }
 
 # ======================================================================
 
@@ -2502,310 +2502,310 @@ def validate_signal(self, signal_data: dict) -> dict:
 # ======================================================================
 
 class EnsembleEngine:
-"""Time-MoE Ensemble: Mamba + LSTM + Transformer với Meta-Labeler"""
+    """Time-MoE Ensemble: Mamba + LSTM + Transformer với Meta-Labeler"""
 
-def __init__(self, models_dir: str = MODELS_DIR):
-    self.models_dir = models_dir
-    self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') if TORCH_AVAILABLE else None
-    
-    # Models
-    self.mamba_model = None
-    self.lstm_model = None
-    self.transformer_model = None
-    self.meta_labeler = None
-    
-    # Status
-    self.mamba_loaded = False
-    self.lstm_loaded = False
-    self.transformer_loaded = False
-    self.meta_loaded = False
-    
-    self._load_models()
+    def __init__(self, models_dir: str = MODELS_DIR):
+        self.models_dir = models_dir
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') if TORCH_AVAILABLE else None
 
-def _load_models(self):
-    """Load all ensemble models"""
-    # Load Mamba
-    for path in [os.path.join(self.models_dir, 'bodhi_v9_m15_final.pt'), 'bodhi_v9_m15_final.pt']:
-        if os.path.exists(path):
-            self._load_mamba(path)
-            break
-    
-    # Load LSTM
-    for path in [os.path.join(self.models_dir, 'bodhi_lstm_ensemble.pt'), 'bodhi_lstm_ensemble.pt']:
-        if os.path.exists(path):
-            self._load_lstm(path)
-            break
-    
-    # Load Transformer
-    for path in [os.path.join(self.models_dir, 'bodhi_transformer_ensemble.pt'), 'bodhi_transformer_ensemble.pt']:
-        if os.path.exists(path):
-            self._load_transformer(path)
-            break
-    
-    # Load Meta-Labeler
-    for path in [os.path.join(self.models_dir, 'meta_labeler_real.joblib'), 'meta_labeler_real.joblib']:
-        if os.path.exists(path):
-            self._load_meta_labeler(path)
-            break
-    
-    loaded_count = sum([self.mamba_loaded, self.lstm_loaded, self.transformer_loaded])
-    logger.info(f"[ENSEMBLE] Loaded {loaded_count}/3 models: "
-               f"Mamba={self.mamba_loaded}(73.3%), "
-               f"LSTM={self.lstm_loaded}(74.2%), "
-               f"Trans={self.transformer_loaded}(66.9%), "
-               f"Meta={self.meta_loaded}")
+        # Models
+        self.mamba_model = None
+        self.lstm_model = None
+        self.transformer_model = None
+        self.meta_labeler = None
 
-def _load_mamba(self, path: str):
-    if not TORCH_AVAILABLE or self.device is None:
-        return
-    try:
-        ckpt = torch.load(path, map_location=self.device, weights_only=False)
-        cfg = ckpt.get('config', {})
-        self.mamba_model = BodhiMambaV10(
-            cfg.get('input_dim', 18), cfg.get('hidden_dim', 192),
-            cfg.get('num_layers', 4), 3, cfg.get('d_state', 16)
-        ).to(self.device)
-        self.mamba_model.load_state_dict(ckpt['model_state_dict'])
-        self.mamba_model.eval()
-        self.mamba_loaded = True
-        logger.info(f"[ENSEMBLE] [OK] Mamba loaded from {path}")
-    except Exception as e:
-        logger.error(f"[ENSEMBLE] [X] Mamba error: {e}")
+        # Status
+        self.mamba_loaded = False
+        self.lstm_loaded = False
+        self.transformer_loaded = False
+        self.meta_loaded = False
 
-def _load_lstm(self, path: str):
-    if not TORCH_AVAILABLE or self.device is None:
-        return
-    try:
-        ckpt = torch.load(path, map_location=self.device, weights_only=False)
-        cfg = ckpt.get('config', {})
-        self.lstm_model = BodhiBiLSTM(
-            cfg.get('input_dim', 18), cfg.get('hidden_dim', 192),
-            cfg.get('num_layers', 3), 3
-        ).to(self.device)
-        self.lstm_model.load_state_dict(ckpt['model_state_dict'])
-        self.lstm_model.eval()
-        self.lstm_loaded = True
-        logger.info(f"[ENSEMBLE] [OK] LSTM loaded from {path}")
-    except Exception as e:
-        logger.error(f"[ENSEMBLE] [X] LSTM error: {e}")
+        self._load_models()
 
-def _load_transformer(self, path: str):
-    if not TORCH_AVAILABLE or self.device is None:
-        return
-    try:
-        ckpt = torch.load(path, map_location=self.device, weights_only=False)
-        cfg = ckpt.get('config', {})
-        self.transformer_model = BodhiTransformer(
-            cfg.get('input_dim', 18), cfg.get('hidden_dim', 192),
-            cfg.get('num_layers', 4), cfg.get('num_heads', 3), 3
-        ).to(self.device)
-        self.transformer_model.load_state_dict(ckpt['model_state_dict'])
-        self.transformer_model.eval()
-        self.transformer_loaded = True
-        logger.info(f"[ENSEMBLE] [OK] Transformer loaded from {path}")
-    except Exception as e:
-        logger.error(f"[ENSEMBLE] [X] Transformer error: {e}")
+    def _load_models(self):
+        """Load all ensemble models"""
+        # Load Mamba
+        for path in [os.path.join(self.models_dir, 'bodhi_v9_m15_final.pt'), 'bodhi_v9_m15_final.pt']:
+            if os.path.exists(path):
+                self._load_mamba(path)
+                break
 
-def _load_meta_labeler(self, path: str):
-    try:
-        self.meta_labeler = joblib.load(path)
-        self.meta_loaded = True
-        logger.info(f"[ENSEMBLE] [OK] Meta-Labeler loaded from {path}")
-    except Exception as e:
-        logger.error(f"[ENSEMBLE] [X] Meta-Labeler error: {e}")
+        # Load LSTM
+        for path in [os.path.join(self.models_dir, 'bodhi_lstm_ensemble.pt'), 'bodhi_lstm_ensemble.pt']:
+            if os.path.exists(path):
+                self._load_lstm(path)
+                break
 
-def _predict_model(self, model, features: np.ndarray) -> Tuple[float, float]:
-    """Generic model prediction"""
-    if model is None:
-        return 0.5, 50.0
-    try:
-        if features.ndim == 2:
-            features = features.reshape(1, *features.shape)
-        X = torch.FloatTensor(features).to(self.device)
-        with torch.inference_mode():
-            probs = torch.softmax(model(X), dim=1).cpu().numpy()[0]
-            # probs: [SELL, HOLD, BUY]
-            signal = (probs[2] - probs[0] + 1) / 2  # 0-1 scale
-            confidence = float(max(probs) * 100)
-        return signal, confidence
-    except Exception as e:
-        logger.error(f"Model prediction error: {e}")
-        return 0.5, 50.0
+        # Load Transformer
+        for path in [os.path.join(self.models_dir, 'bodhi_transformer_ensemble.pt'), 'bodhi_transformer_ensemble.pt']:
+            if os.path.exists(path):
+                self._load_transformer(path)
+                break
 
-def get_ensemble_prediction(self, features: np.ndarray) -> Dict:
-    """Get weighted ensemble prediction from all models"""
-    mamba_sig, mamba_conf = self._predict_model(self.mamba_model, features)
-    lstm_sig, lstm_conf = self._predict_model(self.lstm_model, features)
-    trans_sig, trans_conf = self._predict_model(self.transformer_model, features)
-    
-    # Weighted ensemble (only use loaded models)
-    w = ENSEMBLE_CONFIG
-    total_w, weighted_sig, weighted_conf = 0, 0, 0
-    
-    if self.mamba_loaded:
-        weighted_sig += w['mamba_weight'] * mamba_sig
-        weighted_conf += w['mamba_weight'] * mamba_conf
-        total_w += w['mamba_weight']
-    if self.lstm_loaded:
-        weighted_sig += w['lstm_weight'] * lstm_sig
-        weighted_conf += w['lstm_weight'] * lstm_conf
-        total_w += w['lstm_weight']
-    if self.transformer_loaded:
-        weighted_sig += w['transformer_weight'] * trans_sig
-        weighted_conf += w['transformer_weight'] * trans_conf
-        total_w += w['transformer_weight']
-    
-    ens_sig = weighted_sig / total_w if total_w > 0 else 0.5
-    ens_conf = weighted_conf / total_w if total_w > 0 else 50
-    
-    # Check consensus
-    buy_threshold = w['ensemble_buy_threshold']
-    sell_threshold = w['ensemble_sell_threshold']
-    
-    buy_votes = sum([
-        self.mamba_loaded and mamba_sig > buy_threshold,
-        self.lstm_loaded and lstm_sig > buy_threshold,
-        self.transformer_loaded and trans_sig > buy_threshold
-    ])
-    sell_votes = sum([
-        self.mamba_loaded and mamba_sig < sell_threshold,
-        self.lstm_loaded and lstm_sig < sell_threshold,
-        self.transformer_loaded and trans_sig < sell_threshold
-    ])
-    
-    loaded_models = sum([self.mamba_loaded, self.lstm_loaded, self.transformer_loaded])
-    consensus_threshold = min(2, loaded_models)
-    has_consensus = buy_votes >= consensus_threshold or sell_votes >= consensus_threshold
-    
-    # Determine action
-    if ens_sig > buy_threshold and (not w['require_consensus'] or buy_votes >= consensus_threshold):
-        action, action_code = 'BUY', 1
-    elif ens_sig < sell_threshold and (not w['require_consensus'] or sell_votes >= consensus_threshold):
-        action, action_code = 'SELL', -1
-    else:
-        action, action_code = 'HOLD', 0
-    
-    return {
-        'ensemble_signal': ens_sig,
-        'ensemble_confidence': ens_conf,
-        'action': action,
-        'action_code': action_code,
-        'mamba': {'signal': mamba_sig, 'confidence': mamba_conf, 'loaded': self.mamba_loaded},
-        'lstm': {'signal': lstm_sig, 'confidence': lstm_conf, 'loaded': self.lstm_loaded},
-        'transformer': {'signal': trans_sig, 'confidence': trans_conf, 'loaded': self.transformer_loaded},
-        'has_consensus': has_consensus,
-        'buy_votes': buy_votes,
-        'sell_votes': sell_votes,
-        'loaded_models': loaded_models
-    }
+        # Load Meta-Labeler
+        for path in [os.path.join(self.models_dir, 'meta_labeler_real.joblib'), 'meta_labeler_real.joblib']:
+            if os.path.exists(path):
+                self._load_meta_labeler(path)
+                break
 
-def get_meta_probability(self, market_data: Dict, ensemble_result: Dict) -> float:
-    """Get Meta-Labeler probability of profitable trade"""
-    if not self.meta_loaded:
-        return self._rule_based_meta(market_data, ensemble_result)
-    
-    try:
-        features = self._build_meta_features(market_data, ensemble_result)
-        proba = self.meta_labeler.predict_proba(features)[0][1]
-        return float(proba)
-    except Exception as e:
-        logger.error(f"[META] Prediction error: {e}")
-        return self._rule_based_meta(market_data, ensemble_result)
+        loaded_count = sum([self.mamba_loaded, self.lstm_loaded, self.transformer_loaded])
+        logger.info(f"[ENSEMBLE] Loaded {loaded_count}/3 models: "
+                   f"Mamba={self.mamba_loaded}(73.3%), "
+                   f"LSTM={self.lstm_loaded}(74.2%), "
+                   f"Trans={self.transformer_loaded}(66.9%), "
+                   f"Meta={self.meta_loaded}")
 
-def _build_meta_features(self, data: Dict, ensemble: Dict) -> pd.DataFrame:
-    """Build feature vector for Meta-Labeler"""
-    hour = datetime.now().hour
-    symbol = data.get('symbol', 'EURUSD')
-    
-    def rsi_dir(r):
-        return 1 if r < 45 else (-1 if r > 55 else 0)
-    
-    rsi_m5 = data.get('rsi_m5', 50)
-    rsi_m15 = data.get('rsi_m15', 50)
-    rsi_h1 = data.get('rsi_h1', 50)
-    rsi_h4 = data.get('rsi_h4', 50)
-    rsi_vals = [rsi_m5, rsi_m15, rsi_h1, rsi_h4]
-    
-    session = SYMBOL_SESSIONS.get(symbol, {'start': 9, 'end': 20})
-    in_session = session['start'] <= hour <= session['end']
-    
-    features = {
-        'ai_signal_encoded': ensemble.get('action_code', 0),
-        'ai_confidence': ensemble.get('ensemble_confidence', 50) / 100,
-        'followed_ai': 1,
-        'rsi_m5': rsi_m5, 'rsi_m15': rsi_m15, 'rsi_h1': rsi_h1, 'rsi_h4': rsi_h4,
-        'rsi_m5_direction': rsi_dir(rsi_m5),
-        'rsi_m15_direction': rsi_dir(rsi_m15),
-        'rsi_h1_direction': rsi_dir(rsi_h1),
-        'rsi_h4_direction': rsi_dir(rsi_h4),
-        'rsi_avg': np.mean(rsi_vals),
-        'rsi_std': np.std(rsi_vals),
-        'rsi_range': max(rsi_vals) - min(rsi_vals),
-        'adx_m5': data.get('adx_m5', 20),
-        'adx_h4': data.get('adx_h4', 20),
-        'adx_avg': (data.get('adx_m5', 20) + data.get('adx_h4', 20)) / 2,
-        'adx_trending': int(data.get('adx_h4', 20) > 20),
-        'tu_hop_nhat': int(ensemble.get('has_consensus', False)),
-        'tf_agreement': max(ensemble.get('buy_votes', 0), ensemble.get('sell_votes', 0)),
-        'karma_before': data.get('karma', 0),
-        'karma_after': 0, 'karma_change': 0,
-        'karma_positive': int(data.get('karma', 0) > 0),
-        'atr': data.get('atr', 0.001),
-        'drawdown_pips': 0, 'had_sl': 1, 'had_tp': 1, 'has_risk_management': 1,
-        'is_fomo': 0,
-        'is_revenge': int(data.get('consecutive_losses', 0) >= 2),
-        'is_clean': 1, 'bad_behavior': 0,
-        'hour': hour,
-        'day_of_week': datetime.now().weekday(),
-        'trades_today': data.get('trades_today', 0),
-        'is_trading_session': int(in_session),
-        'is_asian': int(0 <= hour <= 8),
-        'is_london': int(8 <= hour <= 16),
-        'is_newyork': int(13 <= hour <= 21),
-        'is_overlap': int(13 <= hour <= 16),
-        'lot': 0.01, 'duration_mins': 0,
-        'symbol_EURUSD': int(symbol == 'EURUSD'),
-        'symbol_GBPUSD': int(symbol == 'GBPUSD'),
-        'symbol_US30': int(symbol == 'US30'),
-        'symbol_XAUUSD': int(symbol == 'XAUUSD'),
-    }
-    
-    df = pd.DataFrame([features])
-    
-    try:
-        expected_cols = self.meta_labeler.feature_names_in_
-        for col in expected_cols:
-            if col not in df.columns:
-                df[col] = 0
-        df = df[expected_cols]
-    except:
-        pass
-    
-    return df
+    def _load_mamba(self, path: str):
+        if not TORCH_AVAILABLE or self.device is None:
+            return
+        try:
+            ckpt = torch.load(path, map_location=self.device, weights_only=False)
+            cfg = ckpt.get('config', {})
+            self.mamba_model = BodhiMambaV10(
+                cfg.get('input_dim', 18), cfg.get('hidden_dim', 192),
+                cfg.get('num_layers', 4), 3, cfg.get('d_state', 16)
+            ).to(self.device)
+            self.mamba_model.load_state_dict(ckpt['model_state_dict'])
+            self.mamba_model.eval()
+            self.mamba_loaded = True
+            logger.info(f"[ENSEMBLE] [OK] Mamba loaded from {path}")
+        except Exception as e:
+            logger.error(f"[ENSEMBLE] [X] Mamba error: {e}")
 
-def _rule_based_meta(self, data: Dict, ensemble: Dict) -> float:
-    """Fallback rule-based meta prediction"""
-    prob = 0.5
-    
-    if ensemble.get('has_consensus', False):
-        prob += 0.15
-    
-    hour = datetime.now().hour
-    symbol = data.get('symbol', 'EURUSD')
-    session = SYMBOL_SESSIONS.get(symbol, {'start': 9, 'end': 20})
-    if session['start'] <= hour <= session['end']:
-        prob += 0.10
-    
-    signal_strength = abs(ensemble.get('ensemble_signal', 0.5) - 0.5) * 2
-    prob += signal_strength * 0.1
-    
-    if data.get('adx_h4', 20) > 25:
-        prob += 0.05
-    
-    if data.get('consecutive_losses', 0) >= 2:
-        prob -= 0.20
-    
-    return max(0, min(1, prob))
+    def _load_lstm(self, path: str):
+        if not TORCH_AVAILABLE or self.device is None:
+            return
+        try:
+            ckpt = torch.load(path, map_location=self.device, weights_only=False)
+            cfg = ckpt.get('config', {})
+            self.lstm_model = BodhiBiLSTM(
+                cfg.get('input_dim', 18), cfg.get('hidden_dim', 192),
+                cfg.get('num_layers', 3), 3
+            ).to(self.device)
+            self.lstm_model.load_state_dict(ckpt['model_state_dict'])
+            self.lstm_model.eval()
+            self.lstm_loaded = True
+            logger.info(f"[ENSEMBLE] [OK] LSTM loaded from {path}")
+        except Exception as e:
+            logger.error(f"[ENSEMBLE] [X] LSTM error: {e}")
+
+    def _load_transformer(self, path: str):
+        if not TORCH_AVAILABLE or self.device is None:
+            return
+        try:
+            ckpt = torch.load(path, map_location=self.device, weights_only=False)
+            cfg = ckpt.get('config', {})
+            self.transformer_model = BodhiTransformer(
+                cfg.get('input_dim', 18), cfg.get('hidden_dim', 192),
+                cfg.get('num_layers', 4), cfg.get('num_heads', 3), 3
+            ).to(self.device)
+            self.transformer_model.load_state_dict(ckpt['model_state_dict'])
+            self.transformer_model.eval()
+            self.transformer_loaded = True
+            logger.info(f"[ENSEMBLE] [OK] Transformer loaded from {path}")
+        except Exception as e:
+            logger.error(f"[ENSEMBLE] [X] Transformer error: {e}")
+
+    def _load_meta_labeler(self, path: str):
+        try:
+            self.meta_labeler = joblib.load(path)
+            self.meta_loaded = True
+            logger.info(f"[ENSEMBLE] [OK] Meta-Labeler loaded from {path}")
+        except Exception as e:
+            logger.error(f"[ENSEMBLE] [X] Meta-Labeler error: {e}")
+
+    def _predict_model(self, model, features: np.ndarray) -> Tuple[float, float]:
+        """Generic model prediction"""
+        if model is None:
+            return 0.5, 50.0
+        try:
+            if features.ndim == 2:
+                features = features.reshape(1, *features.shape)
+            X = torch.FloatTensor(features).to(self.device)
+            with torch.inference_mode():
+                probs = torch.softmax(model(X), dim=1).cpu().numpy()[0]
+                # probs: [SELL, HOLD, BUY]
+                signal = (probs[2] - probs[0] + 1) / 2  # 0-1 scale
+                confidence = float(max(probs) * 100)
+            return signal, confidence
+        except Exception as e:
+            logger.error(f"Model prediction error: {e}")
+            return 0.5, 50.0
+
+    def get_ensemble_prediction(self, features: np.ndarray) -> Dict:
+        """Get weighted ensemble prediction from all models"""
+        mamba_sig, mamba_conf = self._predict_model(self.mamba_model, features)
+        lstm_sig, lstm_conf = self._predict_model(self.lstm_model, features)
+        trans_sig, trans_conf = self._predict_model(self.transformer_model, features)
+
+        # Weighted ensemble (only use loaded models)
+        w = ENSEMBLE_CONFIG
+        total_w, weighted_sig, weighted_conf = 0, 0, 0
+
+        if self.mamba_loaded:
+            weighted_sig += w['mamba_weight'] * mamba_sig
+            weighted_conf += w['mamba_weight'] * mamba_conf
+            total_w += w['mamba_weight']
+        if self.lstm_loaded:
+            weighted_sig += w['lstm_weight'] * lstm_sig
+            weighted_conf += w['lstm_weight'] * lstm_conf
+            total_w += w['lstm_weight']
+        if self.transformer_loaded:
+            weighted_sig += w['transformer_weight'] * trans_sig
+            weighted_conf += w['transformer_weight'] * trans_conf
+            total_w += w['transformer_weight']
+
+        ens_sig = weighted_sig / total_w if total_w > 0 else 0.5
+        ens_conf = weighted_conf / total_w if total_w > 0 else 50
+
+        # Check consensus
+        buy_threshold = w['ensemble_buy_threshold']
+        sell_threshold = w['ensemble_sell_threshold']
+
+        buy_votes = sum([
+            self.mamba_loaded and mamba_sig > buy_threshold,
+            self.lstm_loaded and lstm_sig > buy_threshold,
+            self.transformer_loaded and trans_sig > buy_threshold
+        ])
+        sell_votes = sum([
+            self.mamba_loaded and mamba_sig < sell_threshold,
+            self.lstm_loaded and lstm_sig < sell_threshold,
+            self.transformer_loaded and trans_sig < sell_threshold
+        ])
+
+        loaded_models = sum([self.mamba_loaded, self.lstm_loaded, self.transformer_loaded])
+        consensus_threshold = min(2, loaded_models)
+        has_consensus = buy_votes >= consensus_threshold or sell_votes >= consensus_threshold
+
+        # Determine action
+        if ens_sig > buy_threshold and (not w['require_consensus'] or buy_votes >= consensus_threshold):
+            action, action_code = 'BUY', 1
+        elif ens_sig < sell_threshold and (not w['require_consensus'] or sell_votes >= consensus_threshold):
+            action, action_code = 'SELL', -1
+        else:
+            action, action_code = 'HOLD', 0
+
+        return {
+            'ensemble_signal': ens_sig,
+            'ensemble_confidence': ens_conf,
+            'action': action,
+            'action_code': action_code,
+            'mamba': {'signal': mamba_sig, 'confidence': mamba_conf, 'loaded': self.mamba_loaded},
+            'lstm': {'signal': lstm_sig, 'confidence': lstm_conf, 'loaded': self.lstm_loaded},
+            'transformer': {'signal': trans_sig, 'confidence': trans_conf, 'loaded': self.transformer_loaded},
+            'has_consensus': has_consensus,
+            'buy_votes': buy_votes,
+            'sell_votes': sell_votes,
+            'loaded_models': loaded_models
+        }
+
+    def get_meta_probability(self, market_data: Dict, ensemble_result: Dict) -> float:
+        """Get Meta-Labeler probability of profitable trade"""
+        if not self.meta_loaded:
+            return self._rule_based_meta(market_data, ensemble_result)
+
+        try:
+            features = self._build_meta_features(market_data, ensemble_result)
+            proba = self.meta_labeler.predict_proba(features)[0][1]
+            return float(proba)
+        except Exception as e:
+            logger.error(f"[META] Prediction error: {e}")
+            return self._rule_based_meta(market_data, ensemble_result)
+
+    def _build_meta_features(self, data: Dict, ensemble: Dict) -> pd.DataFrame:
+        """Build feature vector for Meta-Labeler"""
+        hour = datetime.now().hour
+        symbol = data.get('symbol', 'EURUSD')
+
+        def rsi_dir(r):
+            return 1 if r < 45 else (-1 if r > 55 else 0)
+
+        rsi_m5 = data.get('rsi_m5', 50)
+        rsi_m15 = data.get('rsi_m15', 50)
+        rsi_h1 = data.get('rsi_h1', 50)
+        rsi_h4 = data.get('rsi_h4', 50)
+        rsi_vals = [rsi_m5, rsi_m15, rsi_h1, rsi_h4]
+
+        session = SYMBOL_SESSIONS.get(symbol, {'start': 9, 'end': 20})
+        in_session = session['start'] <= hour <= session['end']
+
+        features = {
+            'ai_signal_encoded': ensemble.get('action_code', 0),
+            'ai_confidence': ensemble.get('ensemble_confidence', 50) / 100,
+            'followed_ai': 1,
+            'rsi_m5': rsi_m5, 'rsi_m15': rsi_m15, 'rsi_h1': rsi_h1, 'rsi_h4': rsi_h4,
+            'rsi_m5_direction': rsi_dir(rsi_m5),
+            'rsi_m15_direction': rsi_dir(rsi_m15),
+            'rsi_h1_direction': rsi_dir(rsi_h1),
+            'rsi_h4_direction': rsi_dir(rsi_h4),
+            'rsi_avg': np.mean(rsi_vals),
+            'rsi_std': np.std(rsi_vals),
+            'rsi_range': max(rsi_vals) - min(rsi_vals),
+            'adx_m5': data.get('adx_m5', 20),
+            'adx_h4': data.get('adx_h4', 20),
+            'adx_avg': (data.get('adx_m5', 20) + data.get('adx_h4', 20)) / 2,
+            'adx_trending': int(data.get('adx_h4', 20) > 20),
+            'tu_hop_nhat': int(ensemble.get('has_consensus', False)),
+            'tf_agreement': max(ensemble.get('buy_votes', 0), ensemble.get('sell_votes', 0)),
+            'karma_before': data.get('karma', 0),
+            'karma_after': 0, 'karma_change': 0,
+            'karma_positive': int(data.get('karma', 0) > 0),
+            'atr': data.get('atr', 0.001),
+            'drawdown_pips': 0, 'had_sl': 1, 'had_tp': 1, 'has_risk_management': 1,
+            'is_fomo': 0,
+            'is_revenge': int(data.get('consecutive_losses', 0) >= 2),
+            'is_clean': 1, 'bad_behavior': 0,
+            'hour': hour,
+            'day_of_week': datetime.now().weekday(),
+            'trades_today': data.get('trades_today', 0),
+            'is_trading_session': int(in_session),
+            'is_asian': int(0 <= hour <= 8),
+            'is_london': int(8 <= hour <= 16),
+            'is_newyork': int(13 <= hour <= 21),
+            'is_overlap': int(13 <= hour <= 16),
+            'lot': 0.01, 'duration_mins': 0,
+            'symbol_EURUSD': int(symbol == 'EURUSD'),
+            'symbol_GBPUSD': int(symbol == 'GBPUSD'),
+            'symbol_US30': int(symbol == 'US30'),
+            'symbol_XAUUSD': int(symbol == 'XAUUSD'),
+        }
+
+        df = pd.DataFrame([features])
+
+        try:
+            expected_cols = self.meta_labeler.feature_names_in_
+            for col in expected_cols:
+                if col not in df.columns:
+                    df[col] = 0
+            df = df[expected_cols]
+        except:
+            pass
+
+        return df
+
+    def _rule_based_meta(self, data: Dict, ensemble: Dict) -> float:
+        """Fallback rule-based meta prediction"""
+        prob = 0.5
+
+        if ensemble.get('has_consensus', False):
+            prob += 0.15
+
+        hour = datetime.now().hour
+        symbol = data.get('symbol', 'EURUSD')
+        session = SYMBOL_SESSIONS.get(symbol, {'start': 9, 'end': 20})
+        if session['start'] <= hour <= session['end']:
+            prob += 0.10
+
+        signal_strength = abs(ensemble.get('ensemble_signal', 0.5) - 0.5) * 2
+        prob += signal_strength * 0.1
+
+        if data.get('adx_h4', 20) > 25:
+            prob += 0.05
+
+        if data.get('consecutive_losses', 0) >= 2:
+            prob -= 0.20
+
+        return max(0, min(1, prob))
 
 # ======================================================================
 
@@ -2820,65 +2820,65 @@ def _rule_based_meta(self, data: Dict, ensemble: Dict) -> float:
 # ======================================================================
 
 def check_tu_hop_nhat(data: dict) -> tuple:
-"""
-V6 TỨ HỢP NHẤT - TẤT CẢ PHẢI ĐỒNG THUẬN MỚI VÀO LỆNH
+    """
+    V6 TỨ HỢP NHẤT - TẤT CẢ PHẢI ĐỒNG THUẬN MỚI VÀO LỆNH
 
-THIÊN (D1) = Trời  -> main_trend
-ĐỊA (H4)   = Đất   -> rsi_h4, adx_h4
-NHÂN (H1)  = Người -> rsi_h1
-THỜI (M15) = Timing -> rsi_m15, adx_m15
-"""
-main_trend = data.get('main_trend', 0)
+    THIÊN (D1) = Trời  -> main_trend
+    ĐỊA (H4)   = Đất   -> rsi_h4, adx_h4
+    NHÂN (H1)  = Người -> rsi_h1
+    THỜI (M15) = Timing -> rsi_m15, adx_m15
+    """
+    main_trend = data.get('main_trend', 0)
 
-rsi_d1 = data.get('rsi_d1', 50)
-rsi_h4 = data.get('rsi_h4', 50)
-rsi_h1 = data.get('rsi_h1', 50)
-rsi_m15 = data.get('rsi_m15', 50)
+    rsi_d1 = data.get('rsi_d1', 50)
+    rsi_h4 = data.get('rsi_h4', 50)
+    rsi_h1 = data.get('rsi_h1', 50)
+    rsi_m15 = data.get('rsi_m15', 50)
 
-adx_h4 = data.get('adx_h4', 20)
-adx_h1 = data.get('adx_h1', 20)
-adx_m15 = data.get('adx_m15', 20)
+    adx_h4 = data.get('adx_h4', 20)
+    adx_h1 = data.get('adx_h1', 20)
+    adx_m15 = data.get('adx_m15', 20)
 
-# Check ADX trend strength
-has_trend = adx_m15 >= V6_CONFIG['adx_min']
+    # Check ADX trend strength
+    has_trend = adx_m15 >= V6_CONFIG['adx_min']
 
-# BUY CONDITIONS
-thien_buy = main_trend >= 0  # D1: KHÔNG đánh ngược THIÊN!
-dia_buy = rsi_h4 > 40 and rsi_h4 < 70
-nhan_buy = rsi_h1 > 45
-thoi_buy = rsi_m15 < V6_CONFIG['rsi_buy_max']  # RSI < 45
+    # BUY CONDITIONS
+    thien_buy = main_trend >= 0  # D1: KHÔNG đánh ngược THIÊN!
+    dia_buy = rsi_h4 > 40 and rsi_h4 < 70
+    nhan_buy = rsi_h1 > 45
+    thoi_buy = rsi_m15 < V6_CONFIG['rsi_buy_max']  # RSI < 45
 
-buy_signal = thien_buy and dia_buy and nhan_buy and thoi_buy and has_trend
+    buy_signal = thien_buy and dia_buy and nhan_buy and thoi_buy and has_trend
 
-# SELL CONDITIONS
-thien_sell = main_trend <= 0
-dia_sell = rsi_h4 < 60 and rsi_h4 > 30
-nhan_sell = rsi_h1 < 55
-thoi_sell = rsi_m15 > V6_CONFIG['rsi_sell_min']  # RSI > 55
+    # SELL CONDITIONS
+    thien_sell = main_trend <= 0
+    dia_sell = rsi_h4 < 60 and rsi_h4 > 30
+    nhan_sell = rsi_h1 < 55
+    thoi_sell = rsi_m15 > V6_CONFIG['rsi_sell_min']  # RSI > 55
 
-sell_signal = thien_sell and dia_sell and nhan_sell and thoi_sell and has_trend
+    sell_signal = thien_sell and dia_sell and nhan_sell and thoi_sell and has_trend
 
-if buy_signal:
-    trend_str = "BULL" if main_trend == 1 else "NEUT"
-    reason = f"TỨ HỢP NHẤT BUY | THIÊN:{trend_str} ĐỊA:H4={rsi_h4:.0f} NHÂN:H1={rsi_h1:.0f} THỜI:M15={rsi_m15:.0f}"
-    return 1, reason
+    if buy_signal:
+        trend_str = "BULL" if main_trend == 1 else "NEUT"
+        reason = f"TỨ HỢP NHẤT BUY | THIÊN:{trend_str} ĐỊA:H4={rsi_h4:.0f} NHÂN:H1={rsi_h1:.0f} THỜI:M15={rsi_m15:.0f}"
+        return 1, reason
 
-if sell_signal:
-    trend_str = "BEAR" if main_trend == -1 else "NEUT"
-    reason = f"TỨ HỢP NHẤT SELL | THIÊN:{trend_str} ĐỊA:H4={rsi_h4:.0f} NHÂN:H1={rsi_h1:.0f} THỜI:M15={rsi_m15:.0f}"
-    return -1, reason
+    if sell_signal:
+        trend_str = "BEAR" if main_trend == -1 else "NEUT"
+        reason = f"TỨ HỢP NHẤT SELL | THIÊN:{trend_str} ĐỊA:H4={rsi_h4:.0f} NHÂN:H1={rsi_h1:.0f} THỜI:M15={rsi_m15:.0f}"
+        return -1, reason
 
-# HOLD
-reasons = []
-if not has_trend:
-    reasons.append(f"ADX={adx_m15:.0f}<{V6_CONFIG['adx_min']}")
-if main_trend == -1 and rsi_m15 < 45:
-    reasons.append("THIÊN BEARISH blocks BUY")
-if main_trend == 1 and rsi_m15 > 55:
-    reasons.append("THIÊN BULLISH blocks SELL")
+    # HOLD
+    reasons = []
+    if not has_trend:
+        reasons.append(f"ADX={adx_m15:.0f}<{V6_CONFIG['adx_min']}")
+    if main_trend == -1 and rsi_m15 < 45:
+        reasons.append("THIÊN BEARISH blocks BUY")
+    if main_trend == 1 and rsi_m15 > 55:
+        reasons.append("THIÊN BULLISH blocks SELL")
 
-reason = f"HOLD | {', '.join(reasons) if reasons else 'No setup'}"
-return 0, reason
+    reason = f"HOLD | {', '.join(reasons) if reasons else 'No setup'}"
+    return 0, reason
 
 # ======================================================================
 
@@ -2887,36 +2887,36 @@ return 0, reason
 # ======================================================================
 
 class SignalRequest(BaseModel):
-symbol: str = "EURUSD"
-main_trend: int = 0
-rsi_d1: float = 50
-rsi_h4: float = 50
-rsi_h1: float = 50
-rsi_m15: float = 50
-rsi_m5: float = 50
-adx_h4: float = 20
-adx_h1: float = 20
-adx_m15: float = 20
-adx_m5: float = 20
-atr: float = 0.001
-current_price: float = 0
-tema_d1: float = 0
-karma: int = 0
-trades_today: int = 0
-consecutive_losses: int = 0
-sila_streak: int = 0
+    symbol: str = "EURUSD"
+    main_trend: int = 0
+    rsi_d1: float = 50
+    rsi_h4: float = 50
+    rsi_h1: float = 50
+    rsi_m15: float = 50
+    rsi_m5: float = 50
+    adx_h4: float = 20
+    adx_h1: float = 20
+    adx_m15: float = 20
+    adx_m5: float = 20
+    atr: float = 0.001
+    current_price: float = 0
+    tema_d1: float = 0
+    karma: int = 0
+    trades_today: int = 0
+    consecutive_losses: int = 0
+    sila_streak: int = 0
 
 class TradeRequest(BaseModel):
-symbol: str = "EURUSD"
-type: str = "BUY"
-lot: float = 0.01
-profit_pips: float = 0
-profit_money: float = 0
-open_price: float = 0
-close_price: float = 0
-is_clean: bool = True
-magic: int = 0
-duration_minutes: int = 0
+    symbol: str = "EURUSD"
+    type: str = "BUY"
+    lot: float = 0.01
+    profit_pips: float = 0
+    profit_money: float = 0
+    open_price: float = 0
+    close_price: float = 0
+    is_clean: bool = True
+    magic: int = 0
+    duration_minutes: int = 0
 
 # ======================================================================
 
@@ -2928,14 +2928,14 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-"""Lifespan context manager - startup and shutdown"""
-global ensemble_engine
-# Startup
-ensemble_engine = EnsembleEngine(MODELS_DIR)
-logger.info(f"[STARTUP] Bodhi Genesis V12 ready on port {DEFAULT_PORT}")
-yield
-# Shutdown
-logger.info("[SHUTDOWN] Server stopping…")
+    """Lifespan context manager - startup and shutdown"""
+    global ensemble_engine
+    # Startup
+    ensemble_engine = EnsembleEngine(MODELS_DIR)
+    logger.info(f"[STARTUP] Bodhi Genesis V12 ready on port {DEFAULT_PORT}")
+    yield
+    # Shutdown
+    logger.info("[SHUTDOWN] Server stopping…")
 
 # ======================================================================
 
@@ -2944,18 +2944,18 @@ logger.info("[SHUTDOWN] Server stopping…")
 # ======================================================================
 
 app = FastAPI(
-title="[BODHI] Bodhi Genesis V12 - Complete Ensemble",
-description="Mamba (73.3%) + LSTM (74.2%) + Transformer (66.9%) + Meta-Labeler + PPO Risk",
-version=VERSION,
-lifespan=lifespan
+    title="[BODHI] Bodhi Genesis V12 - Complete Ensemble",
+    description="Mamba (73.3%) + LSTM (74.2%) + Transformer (66.9%) + Meta-Labeler + PPO Risk",
+    version=VERSION,
+    lifespan=lifespan
 )
 
 app.add_middleware(
-CORSMiddleware,
-allow_origins=["*"],
-allow_credentials=True,
-allow_methods=["*"],
-allow_headers=["*"],
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Global instances
@@ -2969,12 +2969,12 @@ ensemble_engine = None
 # Shadow Portfolio Manager (NEW)
 
 try:
-shadow_manager = ShadowPortfolioManager()
-logger.info(f"[SHADOW] Shadow Portfolios initialized (CSV mode)")
-logger.info(f"[SHADOW] Active portfolios: {list(shadow_manager.portfolios.keys())}")
+    shadow_manager = ShadowPortfolioManager()
+    logger.info(f"[SHADOW] Shadow Portfolios initialized (CSV mode)")
+    logger.info(f"[SHADOW] Active portfolios: {list(shadow_manager.portfolios.keys())}")
 except Exception as e:
-logger.error(f"[SHADOW] Initialization failed: {e}")
-shadow_manager = None
+    logger.error(f"[SHADOW] Initialization failed: {e}")
+    shadow_manager = None
 
 # Cache last signal per symbol
 
@@ -2988,78 +2988,78 @@ last_signals = {}
 
 @app.get("/")
 async def root():
-return {
-"name": "[BODHI] Bodhi Genesis V12 - Complete Ensemble",
-"version": VERSION,
-"philosophy": "TỨ HỢP NHẤT - Thien Dia Nhan Hop Nhat",
-"pipeline": "V6 -> Ensemble -> Meta-Labeler -> PPO -> Trade -> Karma",
-"entry_tf": "M15",
-"models": {
-"mamba": {"loaded": ensemble_engine.mamba_loaded if ensemble_engine else False, "accuracy": "73.3%", "weight": "35%"},
-"lstm": {"loaded": ensemble_engine.lstm_loaded if ensemble_engine else False, "accuracy": "74.2%", "weight": "40%"},
-"transformer": {"loaded": ensemble_engine.transformer_loaded if ensemble_engine else False, "accuracy": "66.9%", "weight": "25%"},
-"meta_labeler": {"loaded": ensemble_engine.meta_loaded if ensemble_engine else False},
-"ppo_risk": {"loaded": ppo_engine.model_loaded if ppo_engine else False}
-},
-"sessions": {s: f"{v['start']}:00-{v['end']}:00" for s, v in SYMBOL_SESSIONS.items()},
-"trade_records": data_logger.get_trade_count(),
-"status": "online"
-}
+    return {
+        "name": "[BODHI] Bodhi Genesis V12 - Complete Ensemble",
+        "version": VERSION,
+        "philosophy": "TỨ HỢP NHẤT - Thien Dia Nhan Hop Nhat",
+        "pipeline": "V6 -> Ensemble -> Meta-Labeler -> PPO -> Trade -> Karma",
+        "entry_tf": "M15",
+        "models": {
+            "mamba": {"loaded": ensemble_engine.mamba_loaded if ensemble_engine else False, "accuracy": "73.3%", "weight": "35%"},
+            "lstm": {"loaded": ensemble_engine.lstm_loaded if ensemble_engine else False, "accuracy": "74.2%", "weight": "40%"},
+            "transformer": {"loaded": ensemble_engine.transformer_loaded if ensemble_engine else False, "accuracy": "66.9%", "weight": "25%"},
+            "meta_labeler": {"loaded": ensemble_engine.meta_loaded if ensemble_engine else False},
+            "ppo_risk": {"loaded": ppo_engine.model_loaded if ppo_engine else False}
+        },
+        "sessions": {s: f"{v['start']}:00-{v['end']}:00" for s, v in SYMBOL_SESSIONS.items()},
+        "trade_records": data_logger.get_trade_count(),
+        "status": "online"
+    }
 
 @app.get("/health")
 @app.get("/api/health")
 async def health():
-models_loaded = sum([
-ensemble_engine.mamba_loaded if ensemble_engine else False,
-ensemble_engine.lstm_loaded if ensemble_engine else False,
-ensemble_engine.transformer_loaded if ensemble_engine else False
-])
-return {
-"status": "ok",
-"version": VERSION,
-"models_loaded": f"{models_loaded}/3",
-"meta_loaded": ensemble_engine.meta_loaded if ensemble_engine else False,
-"ppo_loaded": ppo_engine.model_loaded if ppo_engine else False,
-"timestamp": datetime.now().isoformat()
-}
+    models_loaded = sum([
+        ensemble_engine.mamba_loaded if ensemble_engine else False,
+        ensemble_engine.lstm_loaded if ensemble_engine else False,
+        ensemble_engine.transformer_loaded if ensemble_engine else False
+    ])
+    return {
+        "status": "ok",
+        "version": VERSION,
+        "models_loaded": f"{models_loaded}/3",
+        "meta_loaded": ensemble_engine.meta_loaded if ensemble_engine else False,
+        "ppo_loaded": ppo_engine.model_loaded if ppo_engine else False,
+        "timestamp": datetime.now().isoformat()
+    }
 
 @app.api_route("/api/heartbeat", methods=["GET", "POST"])
 @app.api_route("/heartbeat", methods=["GET", "POST"])
 async def heartbeat(request: Request):
-data = {}
-if request.method == "POST":
-try:
-data = await request.json()
-except:
-pass
+    data = {}
+    if request.method == "POST":
+        try:
+            data = await request.json()
+        except:
+            pass
 
-raw_symbol = data.get('symbol', 'EURUSD')
-symbol = normalize_symbol(raw_symbol)
+    raw_symbol = data.get('symbol', 'EURUSD')
+    symbol = normalize_symbol(raw_symbol)
 
-models_loaded = sum([
-    ensemble_engine.mamba_loaded if ensemble_engine else False,
-    ensemble_engine.lstm_loaded if ensemble_engine else False,
-    ensemble_engine.transformer_loaded if ensemble_engine else False
-])
+    models_loaded = sum([
+        ensemble_engine.mamba_loaded if ensemble_engine else False,
+        ensemble_engine.lstm_loaded if ensemble_engine else False,
+        ensemble_engine.transformer_loaded if ensemble_engine else False
+    ])
 
-cached = last_signals.get(symbol, {})
+    cached = last_signals.get(symbol, {})
 
-return {
-    "status": "ok",
-    "server": "ONLINE",
-    "version": VERSION,
-    "entry_tf": "M15",
-    "models_loaded": f"{models_loaded}/3",
-    "meta_loaded": ensemble_engine.meta_loaded if ensemble_engine else False,
-    "ppo_loaded": ppo_engine.model_loaded if ppo_engine else False,
-    "ai_model": cached.get("signal", "READY"),
-    "last_signal": cached.get("signal", "READY"),
-    "ai_confidence": cached.get("confidence", 73.3),
-    "meta_probability": cached.get("meta_probability", 0.5),
-    "trade_records": data_logger.get_trade_count(),
-    "v6_rules": "RSI<45=BUY, RSI>55=SELL, ADX>20",
-    "timestamp": datetime.now().isoformat()
-}
+    return {
+        "status": "ok",
+        "server": "ONLINE",
+        "version": VERSION,
+        "entry_tf": "M15",
+        "models_loaded": f"{models_loaded}/3",
+        "meta_loaded": ensemble_engine.meta_loaded if ensemble_engine else False,
+        "ppo_loaded": ppo_engine.model_loaded if ppo_engine else False,
+        "ai_model": cached.get("signal", "READY"),
+        "last_signal": cached.get("signal", "READY"),
+        "ai_confidence": cached.get("confidence", 73.3),
+        "meta_probability": cached.get("meta_probability", 0.5),
+        "trade_records": data_logger.get_trade_count(),
+        "v6_rules": "RSI<45=BUY, RSI>55=SELL, ADX>20",
+        "timestamp": datetime.now().isoformat()
+    }
 
 @app.api_route("/api/signal", methods=["GET", "POST"])
 @app.api_route("/signal", methods=["GET", "POST"])
