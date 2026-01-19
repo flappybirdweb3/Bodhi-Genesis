@@ -1088,133 +1088,133 @@ class KellyCriterion:
 # ======================================================================
 
 class VolumeProfile:
-"""
-Volume Profile Analysis - Tìm POC và Value Area.
-Chạy hoàn toàn trên CPU với numpy.
-"""
+    """
+    Volume Profile Analysis - Tìm POC và Value Area.
+    Chạy hoàn toàn trên CPU với numpy.
+    """
 
-def __init__(self, num_bins: int = 50, value_area_pct: float = 0.70):
-    """
-    Args:
-        num_bins: Số mức giá để phân tích
-        value_area_pct: % volume cho Value Area (default 70%)
-    """
-    self.num_bins = num_bins
-    self.value_area_pct = value_area_pct
+    def __init__(self, num_bins: int = 50, value_area_pct: float = 0.70):
+        """
+        Args:
+            num_bins: Số mức giá để phân tích
+            value_area_pct: % volume cho Value Area (default 70%)
+        """
+        self.num_bins = num_bins
+        self.value_area_pct = value_area_pct
 
-def calculate(self, highs: List[float], lows: List[float], 
-              volumes: List[float], closes: List[float] = None) -> Dict:
-    """
-    Tính Volume Profile.
-    
-    Args:
-        highs: List giá High
-        lows: List giá Low
-        volumes: List volume
-        closes: List giá Close (optional)
+    def calculate(self, highs: List[float], lows: List[float], 
+                  volumes: List[float], closes: List[float] = None) -> Dict:
+        """
+        Tính Volume Profile.
         
-    Returns:
-        Dict với POC, VAH, VAL, profile data
-    """
-    if not highs or not lows or not volumes:
-        return self._empty_result()
-    
-    highs = np.array(highs)
-    lows = np.array(lows)
-    volumes = np.array(volumes)
-    
-    # Price range
-    price_min = np.min(lows)
-    price_max = np.max(highs)
-    
-    if price_max <= price_min:
-        return self._empty_result()
-    
-    # Create price bins
-    bin_edges = np.linspace(price_min, price_max, self.num_bins + 1)
-    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-    bin_volumes = np.zeros(self.num_bins)
-    
-    # Distribute volume across price bins
-    for i in range(len(highs)):
-        h, l, v = highs[i], lows[i], volumes[i]
-        if v <= 0:
-            continue
+        Args:
+            highs: List giá High
+            lows: List giá Low
+            volumes: List volume
+            closes: List giá Close (optional)
             
-        # Find bins that this candle touches
-        low_bin = np.searchsorted(bin_edges, l, side='right') - 1
-        high_bin = np.searchsorted(bin_edges, h, side='left')
+        Returns:
+            Dict với POC, VAH, VAL, profile data
+        """
+        if not highs or not lows or not volumes:
+            return self._empty_result()
         
-        low_bin = max(0, min(low_bin, self.num_bins - 1))
-        high_bin = max(0, min(high_bin, self.num_bins - 1))
+        highs = np.array(highs)
+        lows = np.array(lows)
+        volumes = np.array(volumes)
         
-        # Distribute volume evenly across touched bins
-        num_touched = high_bin - low_bin + 1
-        vol_per_bin = v / max(1, num_touched)
+        # Price range
+        price_min = np.min(lows)
+        price_max = np.max(highs)
         
-        for b in range(low_bin, high_bin + 1):
-            bin_volumes[b] += vol_per_bin
-    
-    # POC (Point of Control) - highest volume price
-    poc_idx = np.argmax(bin_volumes)
-    poc_price = bin_centers[poc_idx]
-    
-    # Value Area (70% of volume)
-    total_volume = np.sum(bin_volumes)
-    target_volume = total_volume * self.value_area_pct
-    
-    # Expand from POC until we capture target volume
-    vah_idx = poc_idx
-    val_idx = poc_idx
-    current_volume = bin_volumes[poc_idx]
-    
-    while current_volume < target_volume:
-        # Check which direction to expand
-        upper_vol = bin_volumes[vah_idx + 1] if vah_idx + 1 < self.num_bins else 0
-        lower_vol = bin_volumes[val_idx - 1] if val_idx - 1 >= 0 else 0
+        if price_max <= price_min:
+            return self._empty_result()
         
-        if upper_vol >= lower_vol and vah_idx + 1 < self.num_bins:
-            vah_idx += 1
-            current_volume += upper_vol
-        elif val_idx - 1 >= 0:
-            val_idx -= 1
-            current_volume += lower_vol
+        # Create price bins
+        bin_edges = np.linspace(price_min, price_max, self.num_bins + 1)
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        bin_volumes = np.zeros(self.num_bins)
+        
+        # Distribute volume across price bins
+        for i in range(len(highs)):
+            h, l, v = highs[i], lows[i], volumes[i]
+            if v <= 0:
+                continue
+                
+            # Find bins that this candle touches
+            low_bin = np.searchsorted(bin_edges, l, side='right') - 1
+            high_bin = np.searchsorted(bin_edges, h, side='left')
+            
+            low_bin = max(0, min(low_bin, self.num_bins - 1))
+            high_bin = max(0, min(high_bin, self.num_bins - 1))
+            
+            # Distribute volume evenly across touched bins
+            num_touched = high_bin - low_bin + 1
+            vol_per_bin = v / max(1, num_touched)
+            
+            for b in range(low_bin, high_bin + 1):
+                bin_volumes[b] += vol_per_bin
+        
+        # POC (Point of Control) - highest volume price
+        poc_idx = np.argmax(bin_volumes)
+        poc_price = bin_centers[poc_idx]
+        
+        # Value Area (70% of volume)
+        total_volume = np.sum(bin_volumes)
+        target_volume = total_volume * self.value_area_pct
+        
+        # Expand from POC until we capture target volume
+        vah_idx = poc_idx
+        val_idx = poc_idx
+        current_volume = bin_volumes[poc_idx]
+        
+        while current_volume < target_volume:
+            # Check which direction to expand
+            upper_vol = bin_volumes[vah_idx + 1] if vah_idx + 1 < self.num_bins else 0
+            lower_vol = bin_volumes[val_idx - 1] if val_idx - 1 >= 0 else 0
+            
+            if upper_vol >= lower_vol and vah_idx + 1 < self.num_bins:
+                vah_idx += 1
+                current_volume += upper_vol
+            elif val_idx - 1 >= 0:
+                val_idx -= 1
+                current_volume += lower_vol
+            else:
+                break
+        
+        vah_price = bin_centers[min(vah_idx, self.num_bins - 1)]
+        val_price = bin_centers[max(val_idx, 0)]
+        
+        # Current price position relative to VP
+        current_price = closes[-1] if closes else (highs[-1] + lows[-1]) / 2
+        
+        if current_price > vah_price:
+            position = 'ABOVE_VA'
+            bias = -0.3  # Price above value = potential sell
+        elif current_price < val_price:
+            position = 'BELOW_VA'
+            bias = 0.3   # Price below value = potential buy
         else:
-            break
-    
-    vah_price = bin_centers[min(vah_idx, self.num_bins - 1)]
-    val_price = bin_centers[max(val_idx, 0)]
-    
-    # Current price position relative to VP
-    current_price = closes[-1] if closes else (highs[-1] + lows[-1]) / 2
-    
-    if current_price > vah_price:
-        position = 'ABOVE_VA'
-        bias = -0.3  # Price above value = potential sell
-    elif current_price < val_price:
-        position = 'BELOW_VA'
-        bias = 0.3   # Price below value = potential buy
-    else:
-        position = 'INSIDE_VA'
-        bias = 0.0   # Inside value area = neutral
-    
-    return {
-        'poc': round(poc_price, 5),
-        'vah': round(vah_price, 5),  # Value Area High
-        'val': round(val_price, 5),  # Value Area Low
-        'position': position,
-        'bias': bias,
-        'current_price': round(current_price, 5),
-        'total_volume': round(total_volume, 2),
-        'bins': self.num_bins
-    }
+            position = 'INSIDE_VA'
+            bias = 0.0   # Inside value area = neutral
+        
+        return {
+            'poc': round(poc_price, 5),
+            'vah': round(vah_price, 5),  # Value Area High
+            'val': round(val_price, 5),  # Value Area Low
+            'position': position,
+            'bias': bias,
+            'current_price': round(current_price, 5),
+            'total_volume': round(total_volume, 2),
+            'bins': self.num_bins
+        }
 
-def _empty_result(self) -> Dict:
-    return {
-        'poc': 0, 'vah': 0, 'val': 0,
-        'position': 'UNKNOWN', 'bias': 0,
-        'current_price': 0, 'total_volume': 0, 'bins': 0
-    }
+    def _empty_result(self) -> Dict:
+        return {
+            'poc': 0, 'vah': 0, 'val': 0,
+            'position': 'UNKNOWN', 'bias': 0,
+            'current_price': 0, 'total_volume': 0, 'bins': 0
+        }
 
 # ======================================================================
 
@@ -1223,149 +1223,149 @@ def _empty_result(self) -> Dict:
 # ======================================================================
 
 class DBSCANSupportResistance:
-"""
-DBSCAN Clustering để tự động tìm vùng Support/Resistance.
-Chạy hoàn toàn trên CPU với scikit-learn.
-"""
+    """
+    DBSCAN Clustering để tự động tìm vùng Support/Resistance.
+    Chạy hoàn toàn trên CPU với scikit-learn.
+    """
 
-def __init__(self, eps_pct: float = 0.002, min_samples: int = 3):
-    """
-    Args:
-        eps_pct: Khoảng cách % để gom cluster (0.002 = 0.2%)
-        min_samples: Số điểm tối thiểu để tạo cluster
-    """
-    self.eps_pct = eps_pct
-    self.min_samples = min_samples
+    def __init__(self, eps_pct: float = 0.002, min_samples: int = 3):
+        """
+        Args:
+            eps_pct: Khoảng cách % để gom cluster (0.002 = 0.2%)
+            min_samples: Số điểm tối thiểu để tạo cluster
+        """
+        self.eps_pct = eps_pct
+        self.min_samples = min_samples
 
-def find_zones(self, highs: List[float], lows: List[float], 
-               closes: List[float]) -> Dict:
-    """
-    Tìm vùng S/R từ swing highs/lows.
-    
-    Args:
-        highs: List giá High
-        lows: List giá Low
-        closes: List giá Close
+    def find_zones(self, highs: List[float], lows: List[float], 
+                   closes: List[float]) -> Dict:
+        """
+        Tìm vùng S/R từ swing highs/lows.
         
-    Returns:
-        Dict với support_zones, resistance_zones
-    """
-    try:
-        from sklearn.cluster import DBSCAN
-    except ImportError:
-        pass  # logger.warning("[DBSCAN] sklearn not installed")
-        return self._empty_result()
-    
-    if len(highs) < 10:
-        return self._empty_result()
-    
-    highs = np.array(highs)
-    lows = np.array(lows)
-    closes = np.array(closes)
-    
-    # Find swing highs and lows
-    swing_highs = self._find_swing_points(highs, is_high=True)
-    swing_lows = self._find_swing_points(lows, is_high=False)
-    
-    if len(swing_highs) < 2 and len(swing_lows) < 2:
-        return self._empty_result()
-    
-    # Calculate eps based on price range
-    price_range = np.max(highs) - np.min(lows)
-    eps = price_range * self.eps_pct
-    
-    # Cluster swing highs (Resistance)
-    resistance_zones = []
-    if len(swing_highs) >= self.min_samples:
-        X_highs = swing_highs.reshape(-1, 1)
-        db_highs = DBSCAN(eps=eps, min_samples=self.min_samples).fit(X_highs)
+        Args:
+            highs: List giá High
+            lows: List giá Low
+            closes: List giá Close
+            
+        Returns:
+            Dict với support_zones, resistance_zones
+        """
+        try:
+            from sklearn.cluster import DBSCAN
+        except ImportError:
+            pass  # logger.warning("[DBSCAN] sklearn not installed")
+            return self._empty_result()
         
-        for label in set(db_highs.labels_):
-            if label == -1:  # Noise
-                continue
-            cluster_prices = swing_highs[db_highs.labels_ == label]
-            zone_price = np.mean(cluster_prices)
-            zone_strength = len(cluster_prices)
-            resistance_zones.append({
-                'price': round(zone_price, 5),
-                'strength': zone_strength,
-                'type': 'RESISTANCE'
-            })
-    
-    # Cluster swing lows (Support)
-    support_zones = []
-    if len(swing_lows) >= self.min_samples:
-        X_lows = swing_lows.reshape(-1, 1)
-        db_lows = DBSCAN(eps=eps, min_samples=self.min_samples).fit(X_lows)
+        if len(highs) < 10:
+            return self._empty_result()
         
-        for label in set(db_lows.labels_):
-            if label == -1:
-                continue
-            cluster_prices = swing_lows[db_lows.labels_ == label]
-            zone_price = np.mean(cluster_prices)
-            zone_strength = len(cluster_prices)
-            support_zones.append({
-                'price': round(zone_price, 5),
-                'strength': zone_strength,
-                'type': 'SUPPORT'
-            })
-    
-    # Sort by strength
-    resistance_zones.sort(key=lambda x: x['strength'], reverse=True)
-    support_zones.sort(key=lambda x: x['strength'], reverse=True)
-    
-    # Current price analysis
-    current_price = closes[-1]
-    nearest_support = self._find_nearest(support_zones, current_price, 'below')
-    nearest_resistance = self._find_nearest(resistance_zones, current_price, 'above')
-    
-    return {
-        'resistance_zones': resistance_zones[:5],  # Top 5
-        'support_zones': support_zones[:5],
-        'nearest_support': nearest_support,
-        'nearest_resistance': nearest_resistance,
-        'current_price': round(current_price, 5),
-        'zone_count': len(resistance_zones) + len(support_zones)
-    }
+        highs = np.array(highs)
+        lows = np.array(lows)
+        closes = np.array(closes)
+        
+        # Find swing highs and lows
+        swing_highs = self._find_swing_points(highs, is_high=True)
+        swing_lows = self._find_swing_points(lows, is_high=False)
+        
+        if len(swing_highs) < 2 and len(swing_lows) < 2:
+            return self._empty_result()
+        
+        # Calculate eps based on price range
+        price_range = np.max(highs) - np.min(lows)
+        eps = price_range * self.eps_pct
+        
+        # Cluster swing highs (Resistance)
+        resistance_zones = []
+        if len(swing_highs) >= self.min_samples:
+            X_highs = swing_highs.reshape(-1, 1)
+            db_highs = DBSCAN(eps=eps, min_samples=self.min_samples).fit(X_highs)
+            
+            for label in set(db_highs.labels_):
+                if label == -1:  # Noise
+                    continue
+                cluster_prices = swing_highs[db_highs.labels_ == label]
+                zone_price = np.mean(cluster_prices)
+                zone_strength = len(cluster_prices)
+                resistance_zones.append({
+                    'price': round(zone_price, 5),
+                    'strength': zone_strength,
+                    'type': 'RESISTANCE'
+                })
+        
+        # Cluster swing lows (Support)
+        support_zones = []
+        if len(swing_lows) >= self.min_samples:
+            X_lows = swing_lows.reshape(-1, 1)
+            db_lows = DBSCAN(eps=eps, min_samples=self.min_samples).fit(X_lows)
+            
+            for label in set(db_lows.labels_):
+                if label == -1:
+                    continue
+                cluster_prices = swing_lows[db_lows.labels_ == label]
+                zone_price = np.mean(cluster_prices)
+                zone_strength = len(cluster_prices)
+                support_zones.append({
+                    'price': round(zone_price, 5),
+                    'strength': zone_strength,
+                    'type': 'SUPPORT'
+                })
+        
+        # Sort by strength
+        resistance_zones.sort(key=lambda x: x['strength'], reverse=True)
+        support_zones.sort(key=lambda x: x['strength'], reverse=True)
+        
+        # Current price analysis
+        current_price = closes[-1]
+        nearest_support = self._find_nearest(support_zones, current_price, 'below')
+        nearest_resistance = self._find_nearest(resistance_zones, current_price, 'above')
+        
+        return {
+            'resistance_zones': resistance_zones[:5],  # Top 5
+            'support_zones': support_zones[:5],
+            'nearest_support': nearest_support,
+            'nearest_resistance': nearest_resistance,
+            'current_price': round(current_price, 5),
+            'zone_count': len(resistance_zones) + len(support_zones)
+        }
 
-def _find_swing_points(self, prices: np.ndarray, is_high: bool, 
-                       window: int = 5) -> np.ndarray:
-    """Tìm swing highs hoặc lows"""
-    swings = []
-    for i in range(window, len(prices) - window):
-        if is_high:
-            if prices[i] == np.max(prices[i-window:i+window+1]):
-                swings.append(prices[i])
+    def _find_swing_points(self, prices: np.ndarray, is_high: bool, 
+                           window: int = 5) -> np.ndarray:
+        """Tìm swing highs hoặc lows"""
+        swings = []
+        for i in range(window, len(prices) - window):
+            if is_high:
+                if prices[i] == np.max(prices[i-window:i+window+1]):
+                    swings.append(prices[i])
+            else:
+                if prices[i] == np.min(prices[i-window:i+window+1]):
+                    swings.append(prices[i])
+        return np.array(swings)
+
+    def _find_nearest(self, zones: List[Dict], price: float, 
+                      direction: str) -> Optional[Dict]:
+        """Tìm zone gần nhất"""
+        if not zones:
+            return None
+        
+        if direction == 'above':
+            above_zones = [z for z in zones if z['price'] > price]
+            if above_zones:
+                return min(above_zones, key=lambda x: x['price'] - price)
         else:
-            if prices[i] == np.min(prices[i-window:i+window+1]):
-                swings.append(prices[i])
-    return np.array(swings)
-
-def _find_nearest(self, zones: List[Dict], price: float, 
-                  direction: str) -> Optional[Dict]:
-    """Tìm zone gần nhất"""
-    if not zones:
+            below_zones = [z for z in zones if z['price'] < price]
+            if below_zones:
+                return max(below_zones, key=lambda x: x['price'])
         return None
-    
-    if direction == 'above':
-        above_zones = [z for z in zones if z['price'] > price]
-        if above_zones:
-            return min(above_zones, key=lambda x: x['price'] - price)
-    else:
-        below_zones = [z for z in zones if z['price'] < price]
-        if below_zones:
-            return max(below_zones, key=lambda x: x['price'])
-    return None
 
-def _empty_result(self) -> Dict:
-    return {
-        'resistance_zones': [],
-        'support_zones': [],
-        'nearest_support': None,
-        'nearest_resistance': None,
-        'current_price': 0,
-        'zone_count': 0
-    }
+    def _empty_result(self) -> Dict:
+        return {
+            'resistance_zones': [],
+            'support_zones': [],
+            'nearest_support': None,
+            'nearest_resistance': None,
+            'current_price': 0,
+            'zone_count': 0
+        }
 
 # ======================================================================
 
@@ -1525,83 +1525,83 @@ ALT_PREFIXES = (
 
 @lru_cache(maxsize=256)
 def normalize_symbol(raw_symbol: str) -> str:
-"""
-Normalize broker-specific symbol to Bodhi standard (12 pairs support)
+    """
+    Normalize broker-specific symbol to Bodhi standard (12 pairs support)
 
-Handles wildcard matching:
-- EURUSD* → EURUSD (e.g., EURUSDm, EURUSDpro, EURUSD.raw, etc.)
-- GBPUSD* → GBPUSD
-- XAUUSD* → XAUUSD
-... etc for all 12 pairs
-"""
-if not raw_symbol:
+    Handles wildcard matching:
+    - EURUSD* → EURUSD (e.g., EURUSDm, EURUSDpro, EURUSD.raw, etc.)
+    - GBPUSD* → GBPUSD
+    - XAUUSD* → XAUUSD
+    ... etc for all 12 pairs
+    """
+    if not raw_symbol:
+        return 'EURUSD'
+
+    # Clean and uppercase
+    symbol = raw_symbol.upper().strip()
+
+    # Remove common broker prefixes/suffixes first
+    # Some brokers use: #EURUSD, FX:EURUSD, etc.
+    symbol = symbol.replace('#', '').replace('FX:', '').replace('FOREX:', '')
+
+    # ═══════════════════════════════════════════════════════════════
+    # LEGACY: Direct lookup in SYMBOL_MAP (backward compatibility)
+    # ═══════════════════════════════════════════════════════════════
+    normalized = SYMBOL_MAP.get(symbol)
+    if normalized is not None:
+        return normalized
+
+    # ═══════════════════════════════════════════════════════════════
+    # WILDCARD MATCHING - Check if symbol STARTS WITH known pairs
+    # Handles: EURUSD*, GBPUSD*, XAUUSD*, etc.
+    # ═══════════════════════════════════════════════════════════════
+
+    # Define all 12 base pairs in priority order
+    # (configured once at module scope for speed)
+    # Check if symbol starts with any base pair
+    for base_pair in BASE_PAIR_PREFIXES:
+        if symbol.startswith(base_pair):
+            # Wildcard match! EURUSD* → EURUSD
+            return base_pair
+
+    # ═══════════════════════════════════════════════════════════════
+    # ALTERNATIVE NAMES (Gold, Silver, Dow, etc.)
+    # ═══════════════════════════════════════════════════════════════
+    for prefix, canonical in ALT_PREFIXES:
+        if symbol.startswith(prefix):
+            return canonical
+
+    # ═══════════════════════════════════════════════════════════════
+    # FUZZY MATCHING (Last resort - for unusual formats)
+    # ═══════════════════════════════════════════════════════════════
+
+    # EUR Cluster
+    if 'EUR' in symbol and 'USD' in symbol: return 'EURUSD'
+    if 'EUR' in symbol and 'GBP' in symbol: return 'EURGBP'
+    if 'EUR' in symbol and 'JPY' in symbol: return 'EURJPY'
+
+    # GBP Cluster
+    if 'GBP' in symbol and 'USD' in symbol: return 'GBPUSD'
+    if 'GBP' in symbol and 'JPY' in symbol: return 'GBPJPY'
+
+    # USD Majors
+    if 'USD' in symbol and 'JPY' in symbol: return 'USDJPY'
+    if 'USD' in symbol and 'CAD' in symbol: return 'USDCAD'
+    if 'AUD' in symbol and 'USD' in symbol: return 'AUDUSD'
+
+    # Commodities
+    if 'XAU' in symbol or 'GOLD' in symbol: return 'XAUUSD'
+    if 'XAG' in symbol or 'SILVER' in symbol: return 'XAGUSD'
+
+    # Indices
+    if 'US30' in symbol or 'DJ' in symbol or 'DOW' in symbol: return 'US30'
+
+    # Oceania
+    if 'NZD' in symbol and 'USD' in symbol: return 'NZDUSD'
+
+    # Unknown symbol - log warning and default
+    logger.warning(f"Unknown symbol: {raw_symbol} - defaulting to EURUSD")
     return 'EURUSD'
-
-# Clean and uppercase
-symbol = raw_symbol.upper().strip()
-
-# Remove common broker prefixes/suffixes first
-# Some brokers use: #EURUSD, FX:EURUSD, etc.
-symbol = symbol.replace('#', '').replace('FX:', '').replace('FOREX:', '')
-
-# ═══════════════════════════════════════════════════════════════
-# LEGACY: Direct lookup in SYMBOL_MAP (backward compatibility)
-# ═══════════════════════════════════════════════════════════════
-normalized = SYMBOL_MAP.get(symbol)
-if normalized is not None:
-    return normalized
-
-# ═══════════════════════════════════════════════════════════════
-# WILDCARD MATCHING - Check if symbol STARTS WITH known pairs
-# Handles: EURUSD*, GBPUSD*, XAUUSD*, etc.
-# ═══════════════════════════════════════════════════════════════
-
-# Define all 12 base pairs in priority order
-# (configured once at module scope for speed)
-# Check if symbol starts with any base pair
-for base_pair in BASE_PAIR_PREFIXES:
-    if symbol.startswith(base_pair):
-        # Wildcard match! EURUSD* → EURUSD
-        return base_pair
-
-# ═══════════════════════════════════════════════════════════════
-# ALTERNATIVE NAMES (Gold, Silver, Dow, etc.)
-# ═══════════════════════════════════════════════════════════════
-for prefix, canonical in ALT_PREFIXES:
-    if symbol.startswith(prefix):
-        return canonical
-
-# ═══════════════════════════════════════════════════════════════
-# FUZZY MATCHING (Last resort - for unusual formats)
-# ═══════════════════════════════════════════════════════════════
-
-# EUR Cluster
-if 'EUR' in symbol and 'USD' in symbol: return 'EURUSD'
-if 'EUR' in symbol and 'GBP' in symbol: return 'EURGBP'
-if 'EUR' in symbol and 'JPY' in symbol: return 'EURJPY'
-
-# GBP Cluster
-if 'GBP' in symbol and 'USD' in symbol: return 'GBPUSD'
-if 'GBP' in symbol and 'JPY' in symbol: return 'GBPJPY'
-
-# USD Majors
-if 'USD' in symbol and 'JPY' in symbol: return 'USDJPY'
-if 'USD' in symbol and 'CAD' in symbol: return 'USDCAD'
-if 'AUD' in symbol and 'USD' in symbol: return 'AUDUSD'
-
-# Commodities
-if 'XAU' in symbol or 'GOLD' in symbol: return 'XAUUSD'
-if 'XAG' in symbol or 'SILVER' in symbol: return 'XAGUSD'
-
-# Indices
-if 'US30' in symbol or 'DJ' in symbol or 'DOW' in symbol: return 'US30'
-
-# Oceania
-if 'NZD' in symbol and 'USD' in symbol: return 'NZDUSD'
-
-# Unknown symbol - log warning and default
-logger.warning(f"Unknown symbol: {raw_symbol} - defaulting to EURUSD")
-return 'EURUSD'
 
 # ======================================================================
 #
@@ -1611,65 +1611,65 @@ return 'EURUSD'
 
 @lru_cache(maxsize=256)
 def get_base_symbol(symbol: str) -> str:
-"""Remove suffix like .cash, .a, .raw, etc."""
-return symbol.replace('.cash', '').replace('.a', '').replace('.raw', '').replace('_', '').replace('.', '').upper()
+    """Remove suffix like .cash, .a, .raw, etc."""
+    return symbol.replace('.cash', '').replace('.a', '').replace('.raw', '').replace('_', '').replace('.', '').upper()
 
 def calculate_pips(symbol: str, open_price: float, close_price: float,
-profit_money: float, lot: float, trade_type: str = "UNKNOWN") -> float:
-"""Calculate profit pips from price or estimate from profit money."""
-base_symbol = get_base_symbol(symbol)
+                   profit_money: float, lot: float, trade_type: str = "UNKNOWN") -> float:
+    """Calculate profit pips from price or estimate from profit money."""
+    base_symbol = get_base_symbol(symbol)
 
-# METHOD 1: Calculate from prices
-if open_price > 0 and close_price > 0:
-    price_diff = close_price - open_price
-    if trade_type.upper() == "SELL":
-        price_diff = open_price - close_price
-    
-    if 'US30' in base_symbol or 'DJI' in base_symbol or 'DOW' in base_symbol:
-        return round(price_diff, 1)
-    elif 'XAU' in base_symbol or 'GOLD' in base_symbol:
-        return round(price_diff * 10, 1)
-    elif 'JPY' in base_symbol:
-        return round(price_diff * 100, 1)
-    else:
-        return round(price_diff * 10000, 1)
+    # METHOD 1: Calculate from prices
+    if open_price > 0 and close_price > 0:
+        price_diff = close_price - open_price
+        if trade_type.upper() == "SELL":
+            price_diff = open_price - close_price
+        
+        if 'US30' in base_symbol or 'DJI' in base_symbol or 'DOW' in base_symbol:
+            return round(price_diff, 1)
+        elif 'XAU' in base_symbol or 'GOLD' in base_symbol:
+            return round(price_diff * 10, 1)
+        elif 'JPY' in base_symbol:
+            return round(price_diff * 100, 1)
+        else:
+            return round(price_diff * 10000, 1)
 
-# METHOD 2: Estimate from profit money
-if profit_money == 0:
-    return 0.0
-if lot <= 0:
-    lot = 0.01
+    # METHOD 2: Estimate from profit money
+    if profit_money == 0:
+        return 0.0
+    if lot <= 0:
+        lot = 0.01
 
-pip_value_per_lot = 10.0
-if 'US30' in base_symbol or 'DJI' in base_symbol:
-    pip_value_per_lot = 1.0
-elif 'XAU' in base_symbol or 'GOLD' in base_symbol:
     pip_value_per_lot = 10.0
-elif 'JPY' in base_symbol:
-    pip_value_per_lot = 7.0
+    if 'US30' in base_symbol or 'DJI' in base_symbol:
+        pip_value_per_lot = 1.0
+    elif 'XAU' in base_symbol or 'GOLD' in base_symbol:
+        pip_value_per_lot = 10.0
+    elif 'JPY' in base_symbol:
+        pip_value_per_lot = 7.0
 
-pip_value = pip_value_per_lot * lot
-if pip_value > 0:
-    return round(profit_money / pip_value, 1)
-return 0.0
+    pip_value = pip_value_per_lot * lot
+    if pip_value > 0:
+        return round(profit_money / pip_value, 1)
+    return 0.0
 
 def normalize_pips(symbol: str, ea_pips: float, profit_money: float, lot: float,
-open_price: float = 0, close_price: float = 0, trade_type: str = "UNKNOWN") -> float:
-"""Normalize pips from EA - use price if available, validate otherwise."""
-if open_price > 0 and close_price > 0:
-return calculate_pips(symbol, open_price, close_price, profit_money, lot, trade_type)
+                   open_price: float = 0, close_price: float = 0, trade_type: str = "UNKNOWN") -> float:
+    """Normalize pips from EA - use price if available, validate otherwise."""
+    if open_price > 0 and close_price > 0:
+        return calculate_pips(symbol, open_price, close_price, profit_money, lot, trade_type)
 
-if profit_money == 0:
-    return 0.0
+    if profit_money == 0:
+        return 0.0
 
-expected_pips = calculate_pips(symbol, 0, 0, profit_money, lot)
+    expected_pips = calculate_pips(symbol, 0, 0, profit_money, lot)
 
-if expected_pips != 0:
-    ratio = abs(ea_pips / expected_pips) if expected_pips != 0 else float('inf')
-    if 0.2 <= ratio <= 5.0:
-        return ea_pips
+    if expected_pips != 0:
+        ratio = abs(ea_pips / expected_pips) if expected_pips != 0 else float('inf')
+        if 0.2 <= ratio <= 5.0:
+            return ea_pips
 
-return expected_pips
+    return expected_pips
 
 # ======================================================================
 
@@ -1678,7 +1678,7 @@ return expected_pips
 # ======================================================================
 
 for d in [DATA_DIR, LOGS_DIR, MODELS_DIR]:
-os.makedirs(d, exist_ok=True)
+    os.makedirs(d, exist_ok=True)
 
 # Configure logging with UTF-8 support for Windows
 
@@ -1694,13 +1694,13 @@ file_handler.setFormatter(log_formatter)
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(log_formatter)
 try:
-# Try to set UTF-8 encoding for console on Windows
-import sys
-if sys.platform == 'win32':
-sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    # Try to set UTF-8 encoding for console on Windows
+    import sys
+    if sys.platform == 'win32':
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 except:
-pass
+    pass
 
 logging.basicConfig(level=logging.INFO, handlers=[file_handler, console_handler])
 logger = logging.getLogger(__name__)
@@ -1712,40 +1712,18 @@ logger = logging.getLogger(__name__)
 # ======================================================================
 
 # Log Numba status
-
 if NUMBA_AVAILABLE:
-logger.info("✅ Numba JIT optimization enabled (CPU)")
-logger.info("✅ Numba JIT functions compiled")
+    logger.info("✅ Numba JIT optimization enabled (CPU)")
+    logger.info("✅ Numba JIT functions compiled")
 else:
-logger.warning("⚠️  Numba not available. Install: pip install numba")
+    logger.warning("⚠️  Numba not available. Install: pip install numba")
 
 # Log XGBoost status
-
 if XGBOOST_AVAILABLE:
-logger.info("✅ XGBoost available for retraining")
-logger.info("✅ Retrain engine classes loaded")
+    logger.info("✅ XGBoost available for retraining")
+    logger.info("✅ Retrain engine classes loaded")
 else:
-logger.warning("⚠️  XGBoost not available. Install: pip install xgboost scikit-learn")
-
-# ======================================================================
-
-# LOG OPTIMIZATION STATUS
-
-# ======================================================================
-
-# Log Numba status
-
-if NUMBA_AVAILABLE:
-logger.info("✅ Numba JIT optimization enabled (CPU)")
-else:
-logger.warning("⚠️  Numba not available. Install: pip install numba")
-
-# Log XGBoost status
-
-if XGBOOST_AVAILABLE:
-logger.info("✅ XGBoost available for retraining")
-else:
-logger.warning("⚠️  XGBoost not available. Install: pip install xgboost scikit-learn")
+    logger.warning("⚠️  XGBoost not available. Install: pip install xgboost scikit-learn")
 
 # ======================================================================
 
@@ -1755,192 +1733,192 @@ logger.warning("⚠️  XGBoost not available. Install: pip install xgboost scik
 
 if TORCH_AVAILABLE:
 
-# -----------------------------------------------------------------
-# MAMBA MODEL (V10 - 73.3%)
-# -----------------------------------------------------------------
+    # -----------------------------------------------------------------
+    # MAMBA MODEL (V10 - 73.3%)
+    # -----------------------------------------------------------------
 
-class SimplifiedMambaBlock(nn.Module):
-    """Simplified Mamba block V10 - MUST MATCH TRAINING SCRIPT"""
-    def __init__(self, dim, d_state=16, d_conv=4, expand=2):
-        super().__init__()
-        self.dim = dim
-        self.d_state = d_state
-        d_inner = dim * expand
-        
-        self.in_proj = nn.Linear(dim, d_inner * 2, bias=False)
-        self.conv1d = nn.Conv1d(d_inner, d_inner, d_conv, padding=d_conv-1, groups=d_inner)
-        self.x_proj = nn.Linear(d_inner, d_state * 2, bias=False)
-        self.dt_proj = nn.Linear(d_state, d_inner, bias=True)
-        self.out_proj = nn.Linear(d_inner, dim, bias=False)
-        
-        self.A = nn.Parameter(torch.randn(d_inner, d_state))
-        self.D = nn.Parameter(torch.ones(d_inner))
-        
-    def forward(self, x):
-        b, l, d = x.shape
-        xz = self.in_proj(x)
-        x_inner, z = xz.chunk(2, dim=-1)
-        
-        x_conv = x_inner.transpose(1, 2)
-        x_conv = self.conv1d(x_conv)[:, :, :l]
-        x_conv = x_conv.transpose(1, 2)
-        x_conv = F.silu(x_conv)
-        
-        x_dbl = self.x_proj(x_conv)
-        delta, B = x_dbl.split([self.d_state, self.d_state], dim=-1)
-        delta = F.softplus(self.dt_proj(delta))
-        
-        y = x_conv * self.D + x_conv
-        y = y * F.silu(z)
-        return self.out_proj(y)
+    class SimplifiedMambaBlock(nn.Module):
+        """Simplified Mamba block V10 - MUST MATCH TRAINING SCRIPT"""
+        def __init__(self, dim, d_state=16, d_conv=4, expand=2):
+            super().__init__()
+            self.dim = dim
+            self.d_state = d_state
+            d_inner = dim * expand
+            
+            self.in_proj = nn.Linear(dim, d_inner * 2, bias=False)
+            self.conv1d = nn.Conv1d(d_inner, d_inner, d_conv, padding=d_conv-1, groups=d_inner)
+            self.x_proj = nn.Linear(d_inner, d_state * 2, bias=False)
+            self.dt_proj = nn.Linear(d_state, d_inner, bias=True)
+            self.out_proj = nn.Linear(d_inner, dim, bias=False)
+            
+            self.A = nn.Parameter(torch.randn(d_inner, d_state))
+            self.D = nn.Parameter(torch.ones(d_inner))
+            
+        def forward(self, x):
+            b, l, d = x.shape
+            xz = self.in_proj(x)
+            x_inner, z = xz.chunk(2, dim=-1)
+            
+            x_conv = x_inner.transpose(1, 2)
+            x_conv = self.conv1d(x_conv)[:, :, :l]
+            x_conv = x_conv.transpose(1, 2)
+            x_conv = F.silu(x_conv)
+            
+            x_dbl = self.x_proj(x_conv)
+            delta, B = x_dbl.split([self.d_state, self.d_state], dim=-1)
+            delta = F.softplus(self.dt_proj(delta))
+            
+            y = x_conv * self.D + x_conv
+            y = y * F.silu(z)
+            return self.out_proj(y)
 
-class BodhiMambaV10(nn.Module):
-    """Bodhi Genesis V10 - M15 Entry Model 73.3%"""
-    def __init__(self, input_dim=18, hidden_dim=192, num_layers=4, num_classes=3, d_state=16):
-        super().__init__()
-        self.input_proj = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim)
-        )
-        self.blocks = nn.ModuleList([
-            SimplifiedMambaBlock(hidden_dim, d_state=d_state)
-            for _ in range(num_layers)
-        ])
-        self.norm = nn.LayerNorm(hidden_dim)
-        self.head = nn.Linear(hidden_dim, num_classes)
+    class BodhiMambaV10(nn.Module):
+        """Bodhi Genesis V10 - M15 Entry Model 73.3%"""
+        def __init__(self, input_dim=18, hidden_dim=192, num_layers=4, num_classes=3, d_state=16):
+            super().__init__()
+            self.input_proj = nn.Sequential(
+                nn.Linear(input_dim, hidden_dim),
+                nn.LayerNorm(hidden_dim)
+            )
+            self.blocks = nn.ModuleList([
+                SimplifiedMambaBlock(hidden_dim, d_state=d_state)
+                for _ in range(num_layers)
+            ])
+            self.norm = nn.LayerNorm(hidden_dim)
+            self.head = nn.Linear(hidden_dim, num_classes)
+            
+        def forward(self, x):
+            x = self.input_proj(x)
+            for block in self.blocks:
+                x = x + block(x)
+            x = self.norm(x)
+            x = x.mean(dim=1)
+            return self.head(x)
+
+    # -----------------------------------------------------------------
+    # BiLSTM MODEL (74.2%)
+    # -----------------------------------------------------------------
+
+    class BodhiBiLSTM(nn.Module):
+        """BiLSTM Model - 74.2% accuracy"""
+        def __init__(self, input_dim=18, hidden_dim=192, num_layers=3, num_classes=3):
+            super().__init__()
+            self.input_proj = nn.Sequential(
+                nn.Linear(input_dim, hidden_dim),
+                nn.LayerNorm(hidden_dim)
+            )
+            # BiLSTM: output = hidden_dim * 2 = 384
+            self.lstm = nn.LSTM(
+                hidden_dim, hidden_dim,
+                num_layers=num_layers,
+                batch_first=True,
+                bidirectional=True,
+                dropout=0.1 if num_layers > 1 else 0
+            )
+            # Head: LayerNorm(384) -> Linear(384,192) -> ReLU -> Dropout -> Linear(192,3)
+            self.head = nn.Sequential(
+                nn.LayerNorm(hidden_dim * 2),
+                nn.Linear(hidden_dim * 2, hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(0.1),
+                nn.Linear(hidden_dim, num_classes)
+            )
+            
+        def forward(self, x):
+            x = self.input_proj(x)
+            x, _ = self.lstm(x)
+            x = x.mean(dim=1)
+            return self.head(x)
+
+    # -----------------------------------------------------------------
+    # TRANSFORMER MODEL (66.9%)
+    # -----------------------------------------------------------------
+
+    class PositionalEncoding(nn.Module):
+        def __init__(self, d_model, max_len=100):
+            super().__init__()
+            pe = torch.zeros(max_len, d_model)
+            position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+            div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-np.log(10000.0) / d_model))
+            pe[:, 0::2] = torch.sin(position * div_term)
+            pe[:, 1::2] = torch.cos(position * div_term)
+            pe = pe.unsqueeze(0)
+            self.register_buffer('pe', pe)
+            
+        def forward(self, x):
+            return x + self.pe[:, :x.size(1), :]
+
+    class BodhiTransformer(nn.Module):
+        """Transformer Model - 66.9% accuracy"""
+        def __init__(self, input_dim=18, hidden_dim=192, num_layers=4, num_heads=3, num_classes=3):
+            super().__init__()
+            self.input_proj = nn.Sequential(
+                nn.Linear(input_dim, hidden_dim),
+                nn.LayerNorm(hidden_dim)
+            )
+            self.pos_encoder = PositionalEncoding(hidden_dim)
+            encoder_layer = nn.TransformerEncoderLayer(
+                d_model=hidden_dim,
+                nhead=num_heads,
+                dim_feedforward=hidden_dim * 4,
+                dropout=0.1,
+                batch_first=True
+            )
+            self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+            # Head: LayerNorm(192) -> Linear(192,96) -> ReLU -> Dropout -> Linear(96,3)
+            self.head = nn.Sequential(
+                nn.LayerNorm(hidden_dim),
+                nn.Linear(hidden_dim, hidden_dim // 2),
+                nn.ReLU(),
+                nn.Dropout(0.1),
+                nn.Linear(hidden_dim // 2, num_classes)
+            )
+            
+        def forward(self, x):
+            x = self.input_proj(x)
+            x = self.pos_encoder(x)
+            x = self.transformer(x)
+            x = x.mean(dim=1)
+            return self.head(x)
+
+    # -----------------------------------------------------------------
+    # PPO RISK VALIDATOR
+    # -----------------------------------------------------------------
+
+    class PPORiskValidator(nn.Module):
+        """PPO-based Risk Validator - Trung Đạo"""
+        def __init__(self, n_features=12, n_actions=3, hidden_dim=64):
+            super().__init__()
+            self.shared = nn.Sequential(
+                nn.Linear(n_features, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.ReLU()
+            )
+            self.actor = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim // 2),
+                nn.ReLU(),
+                nn.Linear(hidden_dim // 2, n_actions),
+                nn.Softmax(dim=-1)
+            )
+            self.critic = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim // 2),
+                nn.ReLU(),
+                nn.Linear(hidden_dim // 2, 1)
+            )
         
-    def forward(self, x):
-        x = self.input_proj(x)
-        for block in self.blocks:
-            x = x + block(x)
-        x = self.norm(x)
-        x = x.mean(dim=1)
-        return self.head(x)
-
-# -----------------------------------------------------------------
-# BiLSTM MODEL (74.2%)
-# -----------------------------------------------------------------
-
-class BodhiBiLSTM(nn.Module):
-    """BiLSTM Model - 74.2% accuracy"""
-    def __init__(self, input_dim=18, hidden_dim=192, num_layers=3, num_classes=3):
-        super().__init__()
-        self.input_proj = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim)
-        )
-        # BiLSTM: output = hidden_dim * 2 = 384
-        self.lstm = nn.LSTM(
-            hidden_dim, hidden_dim,
-            num_layers=num_layers,
-            batch_first=True,
-            bidirectional=True,
-            dropout=0.1 if num_layers > 1 else 0
-        )
-        # Head: LayerNorm(384) -> Linear(384,192) -> ReLU -> Dropout -> Linear(192,3)
-        self.head = nn.Sequential(
-            nn.LayerNorm(hidden_dim * 2),
-            nn.Linear(hidden_dim * 2, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.Linear(hidden_dim, num_classes)
-        )
+        def forward(self, x):
+            shared = self.shared(x)
+            return self.actor(shared), self.critic(shared)
         
-    def forward(self, x):
-        x = self.input_proj(x)
-        x, _ = self.lstm(x)
-        x = x.mean(dim=1)
-        return self.head(x)
-
-# -----------------------------------------------------------------
-# TRANSFORMER MODEL (66.9%)
-# -----------------------------------------------------------------
-
-class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, max_len=100):
-        super().__init__()
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-np.log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0)
-        self.register_buffer('pe', pe)
-        
-    def forward(self, x):
-        return x + self.pe[:, :x.size(1), :]
-
-class BodhiTransformer(nn.Module):
-    """Transformer Model - 66.9% accuracy"""
-    def __init__(self, input_dim=18, hidden_dim=192, num_layers=4, num_heads=3, num_classes=3):
-        super().__init__()
-        self.input_proj = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim)
-        )
-        self.pos_encoder = PositionalEncoding(hidden_dim)
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=hidden_dim,
-            nhead=num_heads,
-            dim_feedforward=hidden_dim * 4,
-            dropout=0.1,
-            batch_first=True
-        )
-        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-        # Head: LayerNorm(192) -> Linear(192,96) -> ReLU -> Dropout -> Linear(96,3)
-        self.head = nn.Sequential(
-            nn.LayerNorm(hidden_dim),
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.Linear(hidden_dim // 2, num_classes)
-        )
-        
-    def forward(self, x):
-        x = self.input_proj(x)
-        x = self.pos_encoder(x)
-        x = self.transformer(x)
-        x = x.mean(dim=1)
-        return self.head(x)
-
-# -----------------------------------------------------------------
-# PPO RISK VALIDATOR
-# -----------------------------------------------------------------
-
-class PPORiskValidator(nn.Module):
-    """PPO-based Risk Validator - Trung Đạo"""
-    def __init__(self, n_features=12, n_actions=3, hidden_dim=64):
-        super().__init__()
-        self.shared = nn.Sequential(
-            nn.Linear(n_features, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU()
-        )
-        self.actor = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.ReLU(),
-            nn.Linear(hidden_dim // 2, n_actions),
-            nn.Softmax(dim=-1)
-        )
-        self.critic = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.ReLU(),
-            nn.Linear(hidden_dim // 2, 1)
-        )
-    
-    def forward(self, x):
-        shared = self.shared(x)
-        return self.actor(shared), self.critic(shared)
-    
-    def get_action(self, state, deterministic=True):
-        action_probs, value = self.forward(state)
-        if deterministic:
-            action = torch.argmax(action_probs, dim=-1)
-        else:
-            dist = Categorical(action_probs)
-            action = dist.sample()
-        return action, action_probs, value
+        def get_action(self, state, deterministic=True):
+            action_probs, value = self.forward(state)
+            if deterministic:
+                action = torch.argmax(action_probs, dim=-1)
+            else:
+                dist = Categorical(action_probs)
+                action = dist.sample()
+            return action, action_probs, value
 
 # ======================================================================
 
@@ -1949,112 +1927,112 @@ class PPORiskValidator(nn.Module):
 # ======================================================================
 
 class DataLogger:
-"""Log signals and trades to CSV for retraining"""
+    """Log signals and trades to CSV for retraining"""
 
-def __init__(self, data_dir=DATA_DIR):
-    self.data_dir = data_dir
-    self.trades_file = os.path.join(data_dir, 'trades_v12.csv')
-    self.signals_file = os.path.join(data_dir, 'signals_v12.csv')
-    self.lock = Lock()
-    self._init_files()
+    def __init__(self, data_dir=DATA_DIR):
+        self.data_dir = data_dir
+        self.trades_file = os.path.join(data_dir, 'trades_v12.csv')
+        self.signals_file = os.path.join(data_dir, 'signals_v12.csv')
+        self.lock = Lock()
+        self._init_files()
 
-def _init_files(self):
-    """Initialize CSV files with headers"""
-    if not os.path.exists(self.trades_file):
-        with open(self.trades_file, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                'timestamp', 'symbol', 'type', 'lot', 'open_price', 'close_price',
-                'profit_pips', 'profit_money', 'karma_before', 'karma_after',
-                'is_clean', 'magic', 'duration_minutes',
-                'ensemble_signal', 'meta_probability', 'had_consensus'
-            ])
-    
-    if not os.path.exists(self.signals_file):
-        with open(self.signals_file, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                'timestamp', 'symbol', 'final_signal', 'confidence',
-                'v6_signal', 'ensemble_signal', 'meta_probability',
-                'mamba_signal', 'lstm_signal', 'transformer_signal',
-                'has_consensus', 'signal_strength', 'approved',
-                'rsi_m15', 'rsi_h1', 'rsi_h4', 'adx_m15', 'main_trend'
-            ])
-
-def log_trade(self, data: dict):
-    """Log trade to CSV"""
-    with self.lock:
-        try:
-            with open(self.trades_file, 'a', newline='') as f:
+    def _init_files(self):
+        """Initialize CSV files with headers"""
+        if not os.path.exists(self.trades_file):
+            with open(self.trades_file, 'w', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerow([
-                    datetime.now().isoformat(),
-                    data.get('symbol', ''),
-                    data.get('type', ''),
-                    data.get('lot', 0),
-                    data.get('open_price', 0),
-                    data.get('close_price', 0),
-                    data.get('profit_pips', 0),
-                    data.get('profit_money', 0),
-                    data.get('karma_before', 0),
-                    data.get('karma_after', 0),
-                    data.get('is_clean', True),
-                    data.get('magic', 0),
-                    data.get('duration_minutes', 0),
-                    data.get('ensemble_signal', 0.5),
-                    data.get('meta_probability', 0.5),
-                    data.get('had_consensus', False)
+                    'timestamp', 'symbol', 'type', 'lot', 'open_price', 'close_price',
+                    'profit_pips', 'profit_money', 'karma_before', 'karma_after',
+                    'is_clean', 'magic', 'duration_minutes',
+                    'ensemble_signal', 'meta_probability', 'had_consensus'
                 ])
-        except Exception as e:
-            logger.error(f"Error logging trade: {e}")
-
-def log_signal(self, data: dict):
-    """Log signal to CSV"""
-    with self.lock:
-        try:
-            with open(self.signals_file, 'a', newline='') as f:
+        
+        if not os.path.exists(self.signals_file):
+            with open(self.signals_file, 'w', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerow([
-                    datetime.now().isoformat(),
-                    data.get('symbol', ''),
-                    data.get('final_signal', 0),
-                    data.get('confidence', 0),
-                    data.get('v6_signal', 0),
-                    data.get('ensemble_signal', 0.5),
-                    data.get('meta_probability', 0.5),
-                    data.get('mamba_signal', 0.5),
-                    data.get('lstm_signal', 0.5),
-                    data.get('transformer_signal', 0.5),
-                    data.get('has_consensus', False),
-                    data.get('signal_strength', 'NONE'),
-                    data.get('approved', True),
-                    data.get('rsi_m15', 50),
-                    data.get('rsi_h1', 50),
-                    data.get('rsi_h4', 50),
-                    data.get('adx_m15', 20),
-                    data.get('main_trend', 0)
+                    'timestamp', 'symbol', 'final_signal', 'confidence',
+                    'v6_signal', 'ensemble_signal', 'meta_probability',
+                    'mamba_signal', 'lstm_signal', 'transformer_signal',
+                    'has_consensus', 'signal_strength', 'approved',
+                    'rsi_m15', 'rsi_h1', 'rsi_h4', 'adx_m15', 'main_trend'
                 ])
-        except Exception as e:
-            logger.error(f"Error logging signal: {e}")
 
-def get_trade_count(self) -> int:
-    """Get number of logged trades"""
-    try:
-        if os.path.exists(self.trades_file):
-            with open(self.trades_file, 'r') as f:
-                return sum(1 for _ in f) - 1  # Exclude header
-    except:
-        pass
-    return 0
+    def log_trade(self, data: dict):
+        """Log trade to CSV"""
+        with self.lock:
+            try:
+                with open(self.trades_file, 'a', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        datetime.now().isoformat(),
+                        data.get('symbol', ''),
+                        data.get('type', ''),
+                        data.get('lot', 0),
+                        data.get('open_price', 0),
+                        data.get('close_price', 0),
+                        data.get('profit_pips', 0),
+                        data.get('profit_money', 0),
+                        data.get('karma_before', 0),
+                        data.get('karma_after', 0),
+                        data.get('is_clean', True),
+                        data.get('magic', 0),
+                        data.get('duration_minutes', 0),
+                        data.get('ensemble_signal', 0.5),
+                        data.get('meta_probability', 0.5),
+                        data.get('had_consensus', False)
+                    ])
+            except Exception as e:
+                logger.error(f"Error logging trade: {e}")
 
-def get_trades_df(self) -> pd.DataFrame:
-    """Get trades as DataFrame"""
-    try:
-        if os.path.exists(self.trades_file):
-            return pd.read_csv(self.trades_file)
-    except:
-        pass
-    return pd.DataFrame()
+    def log_signal(self, data: dict):
+        """Log signal to CSV"""
+        with self.lock:
+            try:
+                with open(self.signals_file, 'a', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        datetime.now().isoformat(),
+                        data.get('symbol', ''),
+                        data.get('final_signal', 0),
+                        data.get('confidence', 0),
+                        data.get('v6_signal', 0),
+                        data.get('ensemble_signal', 0.5),
+                        data.get('meta_probability', 0.5),
+                        data.get('mamba_signal', 0.5),
+                        data.get('lstm_signal', 0.5),
+                        data.get('transformer_signal', 0.5),
+                        data.get('has_consensus', False),
+                        data.get('signal_strength', 'NONE'),
+                        data.get('approved', True),
+                        data.get('rsi_m15', 50),
+                        data.get('rsi_h1', 50),
+                        data.get('rsi_h4', 50),
+                        data.get('adx_m15', 20),
+                        data.get('main_trend', 0)
+                    ])
+            except Exception as e:
+                logger.error(f"Error logging signal: {e}")
+
+    def get_trade_count(self) -> int:
+        """Get number of logged trades"""
+        try:
+            if os.path.exists(self.trades_file):
+                with open(self.trades_file, 'r') as f:
+                    return sum(1 for _ in f) - 1  # Exclude header
+        except:
+            pass
+        return 0
+
+    def get_trades_df(self) -> pd.DataFrame:
+        """Get trades as DataFrame"""
+        try:
+            if os.path.exists(self.trades_file):
+                return pd.read_csv(self.trades_file)
+        except:
+            pass
+        return pd.DataFrame()
 
 # ======================================================================
 
@@ -2063,11 +2041,11 @@ def get_trades_df(self) -> pd.DataFrame:
 # ======================================================================
 
 if XGBOOST_AVAILABLE:
-class RetrainEngine:
-"""Auto-retrain Meta-Labeler from collected trade data"""
+    class RetrainEngine:
+        """Auto-retrain Meta-Labeler from collected trade data"""
 
-    def __init__(self, data_logger, models_dir='models', min_records=1000, 
-                 min_accuracy=0.65, improvement_threshold=0.02):
+        def __init__(self, data_logger, models_dir='models', min_records=1000, 
+                     min_accuracy=0.65, improvement_threshold=0.02):
         self.data_logger = data_logger
         self.models_dir = models_dir
         self.min_records = min_records
